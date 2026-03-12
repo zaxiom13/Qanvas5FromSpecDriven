@@ -1,0 +1,34 @@
+{
+  "name": "qanvas5",
+  "version": "0.2.0",
+  "description": "A creative playground for learning q",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1 --port 4173",
+    "dev:electron": "npm run build:electron && wait-on tcp:4173 && cross-env QANVAS_RENDERER_URL=http://127.0.0.1:4173 electron .",
+    "build": "vite build && npm run build:electron",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test:runtime": "node --test test/runtime/*.test.mjs",
+    "start": "npm run build && electron ."
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2",
+    "svelte": "^5.38.6"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/node": "^24.3.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^37.2.0",
+    "svelte-check": "^4.3.1",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "wait-on": "^8.0.5"
+  },
+  "license": "MIT"
+}
