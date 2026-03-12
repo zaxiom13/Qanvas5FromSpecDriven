@@ -16,6 +16,8 @@
   let monacoRef = $state<typeof Monaco | null>(null);
   let currentKey = $state('');
   let isApplyingExternalValue = false;
+  let removeWindowShortcuts = () => {};
+  let removeCommentToggle = () => {};
 
   function dispatchShortcut(name: string) {
     window.dispatchEvent(new CustomEvent(name));
@@ -23,6 +25,84 @@
 
   function runEditorAction(actionId: string) {
     void editor?.getAction(actionId)?.run();
+  }
+
+  function toggleLineComments() {
+    if (!editor || !monacoRef) return;
+
+    const monaco = monacoRef;
+    const model = editor.getModel();
+    const selections = editor.getSelections();
+    if (!model || !selections?.length) return;
+
+    const lineNumbers = new Set<number>();
+    for (const selection of selections) {
+      const endLineNumber =
+        selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber
+          ? selection.endLineNumber - 1
+          : selection.endLineNumber;
+
+      for (let lineNumber = selection.startLineNumber; lineNumber <= endLineNumber; lineNumber += 1) {
+        lineNumbers.add(lineNumber);
+      }
+    }
+
+    const sortedLineNumbers = [...lineNumbers].sort((left, right) => left - right);
+    const allCommented = sortedLineNumbers.every((lineNumber) => {
+      const line = model.getLineContent(lineNumber);
+      return !line.trim() || /^\s*\//.test(line);
+    });
+
+    const edits = sortedLineNumbers.map((lineNumber) => {
+      const line = model.getLineContent(lineNumber);
+      const nextLine = !line.trim()
+        ? line
+        : allCommented
+          ? line.replace(/^(\s*)\/ ?/, '$1')
+          : line.replace(/^(\s*)/, '$1/');
+
+      return {
+        range: new monaco.Range(lineNumber, 1, lineNumber, model.getLineMaxColumn(lineNumber)),
+        text: nextLine,
+      };
+    });
+
+    editor.executeEdits('qanvas-comment-toggle', edits);
+  }
+
+  function usesPrimaryModifier(event: KeyboardEvent) {
+    return event.metaKey || event.ctrlKey;
+  }
+
+  function isEditorTarget(target: EventTarget | null) {
+    return target instanceof Node && Boolean(container?.contains(target));
+  }
+
+  function isCommentShortcut(event: KeyboardEvent) {
+    return event.code === 'Slash' || event.key === '/' || event.key === '?';
+  }
+
+  function isPlainTextInput(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return false;
+    const tagName = target.tagName;
+    return tagName === 'INPUT' || tagName === 'TEXTAREA' || target.isContentEditable;
+  }
+
+  function handleWindowShortcuts(event: KeyboardEvent) {
+    if (!usesPrimaryModifier(event)) return;
+
+    if (!event.shiftKey && !event.altKey && event.code === 'KeyO') {
+      event.preventDefault();
+      dispatchShortcut('qanvas:toggle-projects');
+      return;
+    }
+
+    const editorFocused = editor?.hasTextFocus() || isEditorTarget(event.target) || isEditorTarget(document.activeElement);
+    const activeOutsideEditor = isPlainTextInput(document.activeElement) && !isEditorTarget(document.activeElement);
+    if (!event.altKey && isCommentShortcut(event) && (editorFocused || !activeOutsideEditor)) {
+      event.preventDefault();
+      toggleLineComments();
+    }
   }
 
   onMount(async () => {
@@ -71,9 +151,6 @@
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, () => dispatchShortcut('qanvas:toggle-projects'));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, () => dispatchShortcut('qanvas:new-sketch'));
 
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash, () => {
-      runEditorAction('editor.action.commentLine');
-    });
     editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.DownArrow, () => {
       runEditorAction('editor.action.copyLinesDownAction');
     });
@@ -92,9 +169,18 @@
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
       runEditorAction('editor.action.insertLineBefore');
     });
+
+    window.addEventListener('keydown', handleWindowShortcuts, true);
+    removeWindowShortcuts = () => window.removeEventListener('keydown', handleWindowShortcuts, true);
+
+    const handleCommentToggle = () => toggleLineComments();
+    window.addEventListener('qanvas:toggle-comment', handleCommentToggle as EventListener);
+    removeCommentToggle = () => window.removeEventListener('qanvas:toggle-comment', handleCommentToggle as EventListener);
   });
 
   onDestroy(() => {
+    removeWindowShortcuts();
+    removeCommentToggle();
     editor?.dispose();
   });
 

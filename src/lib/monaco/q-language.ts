@@ -2,6 +2,28 @@ import type * as Monaco from 'monaco-editor';
 
 export function registerQLanguage(monaco: typeof Monaco) {
   monaco.languages.register({ id: 'q' });
+  monaco.languages.setLanguageConfiguration('q', {
+    comments: {
+      lineComment: '/',
+    },
+    brackets: [
+      ['{', '}'],
+      ['[', ']'],
+      ['(', ')'],
+    ],
+    autoClosingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+    ],
+    surroundingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+    ],
+  });
 
   monaco.languages.setMonarchTokensProvider('q', {
     tokenizer: {

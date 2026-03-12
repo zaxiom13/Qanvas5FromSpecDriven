@@ -353,6 +353,25 @@ async function createWindow() {
     await mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'));
   }
 
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+
+    const usesPrimaryModifier = process.platform === 'darwin' ? input.meta : input.control;
+    if (!usesPrimaryModifier || input.alt) return;
+
+    const key = input.key.toLowerCase();
+    if (key === 'o') {
+      event.preventDefault();
+      mainWindow?.webContents.send('menu:open-project');
+      return;
+    }
+
+    if (key === '/') {
+      event.preventDefault();
+      mainWindow?.webContents.send('menu:toggle-comment');
+    }
+  });
+
   buildMenu();
 }
 
@@ -394,6 +413,12 @@ function buildMenu() {
       submenu: [
         { role: 'undo' },
         { role: 'redo' },
+        { type: 'separator' },
+        {
+          label: 'Toggle Comment',
+          accelerator: isMac ? 'Cmd+/' : 'Ctrl+/',
+          click: () => mainWindow?.webContents.send('menu:toggle-comment'),
+        },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -599,7 +624,7 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   void runtimeSession.stop();
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 app.on('activate', () => {

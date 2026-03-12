@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   frameRuntime: (payload: unknown) => ipcRenderer.invoke('runtime:frame', payload),
   stopRuntime: () => ipcRenderer.invoke('runtime:stop'),
   onMenuEvent: (channel: string, callback: () => void) => {
-    const valid = ['menu:new-sketch', 'menu:open-project', 'menu:save', 'menu:save-as'];
+    const valid = ['menu:new-sketch', 'menu:open-project', 'menu:save', 'menu:save-as', 'menu:toggle-comment'];
     if (!valid.includes(channel)) return () => {};
 
     const listener = () => callback();

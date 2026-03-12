@@ -25,7 +25,17 @@
     };
   }
 
-  onMount(() => handleGlobalShortcuts());
+  onMount(() => {
+    const disposeShortcuts = handleGlobalShortcuts();
+    const disposeMenuComment = window.electronAPI.onMenuEvent('menu:toggle-comment', () => {
+      window.dispatchEvent(new CustomEvent('qanvas:toggle-comment'));
+    });
+
+    return () => {
+      disposeShortcuts();
+      disposeMenuComment();
+    };
+  });
 </script>
 
 <section id="editor-panel">
