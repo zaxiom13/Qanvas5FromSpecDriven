@@ -132,6 +132,14 @@
       renderWhitespace: 'selection',
       folding: true,
       lineNumbers: 'on',
+      quickSuggestions: {
+        other: true,
+        comments: false,
+        strings: false,
+      },
+      suggestOnTriggerCharacters: true,
+      snippetSuggestions: 'top',
+      acceptSuggestionOnCommitCharacter: true,
       glyphMargin: false,
       overviewRulerBorder: false,
       scrollbar: {

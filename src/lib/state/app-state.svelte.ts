@@ -822,6 +822,7 @@ class AppState {
 
     this.runtimeTransitioning = true;
     await this.stopRuntimeInternal(true);
+    this.appendConsole('info', message);
 
     try {
       await window.electronAPI.startRuntime({
@@ -837,7 +838,6 @@ class AppState {
       this.debugPendingSteps = 0;
       this.debugFrameNumber = 0;
       this.runNonce += 1;
-      this.appendConsole('info', message);
       return true;
     } catch (error) {
       this.runtimeTransitioning = false;

@@ -16,7 +16,7 @@ const uiCases = [
   ...createCanvasSurfaceCases(),
 ];
 
-assert.equal(uiCases.length, 100, `expected 100 UI mutation tests, found ${uiCases.length}`);
+assert.equal(uiCases.length, 108, `expected 108 UI mutation tests, found ${uiCases.length}`);
 
 for (const { name, run } of uiCases) {
   test(name, run);
@@ -28,9 +28,10 @@ function createQLanguageCases() {
 
   const config = monaco.languageConfigs.get('q');
   const tokens = monaco.tokenProviders.get('q');
+  const completionProvider = monaco.completionProviders.get('q');
   const theme = monaco.themes.get('qanvas-warm');
 
-  const cases = [
+  const structuralCases = [
     ['ui q-language registers the q language id', () => assert.deepEqual(plain(monaco.registerCalls), [{ id: 'q' }])],
     ['ui q-language sets a config for q', () => assert.ok(config)],
     ['ui q-language uses slash comments', () => assert.equal(config.comments.lineComment, '/')],
@@ -77,7 +78,7 @@ function createQLanguageCases() {
     ['ui q-language scrollbar hover background remains darker', () => assert.equal(theme.colors['scrollbarSlider.hoverBackground'], '#B8AA96CC')],
   ];
 
-  const tokenSamples = [
+  const tokenCases = [
     ['ui q-language tokenizes slash comments', '/ comment', 'comment'],
     ['ui q-language tokenizes slash commands as keywords', '\\l file.q', 'keyword'],
     ['ui q-language tokenizes opening braces', '{', 'delimiter.curly'],
@@ -97,14 +98,71 @@ function createQLanguageCases() {
     ['ui q-language tokenizes dotted identifiers', 'frame.info', 'identifier'],
     ['ui q-language tokenizes operators', '+', 'operator'],
     ['ui q-language tokenizes whitespace', '   ', 'white'],
+  ].map(([name, sample, expectedToken]) => [name, () => assert.equal(classifyToken(tokens, sample), expectedToken)]);
+
+  const completionCases = [
+    ['ui q-language registers a completion provider for q', () => assert.ok(completionProvider)],
+    [
+      'ui q-language completion provider triggers on slash',
+      () => assert.ok(completionProvider.triggerCharacters.includes('/')),
+    ],
+    [
+      'ui q-language completion provider suggests q built-ins',
+      () => {
+        const suggestions = provideSuggestions(completionProvider, monaco, 'cou', 1, 4);
+        assert.ok(findSuggestion(suggestions, 'count'));
+      },
+    ],
+    [
+      'ui q-language completion provider suggests query keywords',
+      () => {
+        const suggestions = provideSuggestions(completionProvider, monaco, 'sel', 1, 4);
+        const suggestion = findSuggestion(suggestions, 'select');
+        assert.ok(suggestion);
+        assert.equal(suggestion.kind, monaco.languages.CompletionItemKind.Keyword);
+      },
+    ],
+    [
+      'ui q-language completion provider suggests qanvas helpers',
+      () => {
+        const suggestions = provideSuggestions(completionProvider, monaco, 'cir', 1, 4);
+        const suggestion = findSuggestion(suggestions, 'circle');
+        assert.ok(suggestion);
+        assert.equal(suggestion.insertText, 'circle[${1:data}];');
+      },
+    ],
+    [
+      'ui q-language completion provider suggests draw context variables',
+      () => {
+        const suggestions = provideSuggestions(completionProvider, monaco, 'fram', 1, 5);
+        assert.ok(findSuggestion(suggestions, 'frameInfo'));
+        assert.ok(findSuggestion(suggestions, 'frameInfo`frameNum'));
+      },
+    ],
+    [
+      'ui q-language completion provider exposes lifecycle snippets',
+      () => {
+        const suggestions = provideSuggestions(completionProvider, monaco, 'set', 1, 4);
+        const suggestion = findSuggestion(suggestions, 'setup');
+        assert.ok(suggestion);
+        assert.match(suggestion.insertText, /setup:\{/);
+      },
+    ],
+    [
+      'ui q-language slash snippets replace the slash command text',
+      () => {
+        const suggestions = provideSuggestions(completionProvider, monaco, '/cir', 1, 5);
+        const suggestion = findSuggestion(suggestions, '/circle');
+        assert.ok(suggestion);
+        assert.equal(suggestion.range.startColumn, 1);
+        assert.equal(suggestion.range.endColumn, 5);
+        assert.match(suggestion.insertText, /circle\[\(\[\]/);
+      },
+    ],
   ];
 
-  for (const [name, sample, expectedToken] of tokenSamples) {
-    cases.push([name, () => assert.equal(classifyToken(tokens, sample), expectedToken)]);
-  }
-
-  const selectedCases = [...cases.slice(0, 31), ...cases.slice(-19)];
-  assert.equal(selectedCases.length, 50, `expected 50 q-language tests, found ${selectedCases.length}`);
+  const selectedCases = [...structuralCases.slice(0, 31), ...tokenCases, ...completionCases];
+  assert.equal(selectedCases.length, 58, `expected 58 q-language tests, found ${selectedCases.length}`);
   return selectedCases.map(([name, run]) => ({ name, run }));
 }
 
@@ -587,14 +645,33 @@ function createMonacoRecorder() {
   const registerCalls = [];
   const languageConfigs = new Map();
   const tokenProviders = new Map();
+  const completionProviders = new Map();
   const themes = new Map();
 
   return {
     registerCalls,
     languageConfigs,
     tokenProviders,
+    completionProviders,
     themes,
+    Range: class {
+      constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
+        this.startLineNumber = startLineNumber;
+        this.startColumn = startColumn;
+        this.endLineNumber = endLineNumber;
+        this.endColumn = endColumn;
+      }
+    },
     languages: {
+      CompletionItemKind: {
+        Keyword: 'Keyword',
+        Function: 'Function',
+        Variable: 'Variable',
+        Snippet: 'Snippet',
+      },
+      CompletionItemInsertTextRule: {
+        InsertAsSnippet: 'InsertAsSnippet',
+      },
       register(config) {
         registerCalls.push(config);
       },
@@ -603,6 +680,10 @@ function createMonacoRecorder() {
       },
       setMonarchTokensProvider(id, provider) {
         tokenProviders.set(id, provider);
+      },
+      registerCompletionItemProvider(id, provider) {
+        completionProviders.set(id, provider);
+        return { dispose() {} };
       },
     },
     editor: {
@@ -624,6 +705,41 @@ function classifyToken(provider, sample) {
     }
   }
   return null;
+}
+
+function provideSuggestions(provider, monaco, line, lineNumber, column) {
+  const result = provider.provideCompletionItems(createMonacoModel(line), {
+    lineNumber,
+    column,
+  });
+  assert.ok(result);
+  return result.suggestions;
+}
+
+function findSuggestion(suggestions, label) {
+  return suggestions.find((suggestion) => suggestion.label === label);
+}
+
+function createMonacoModel(line) {
+  return {
+    getLineContent(lineNumber) {
+      assert.equal(lineNumber, 1);
+      return line;
+    },
+    getWordUntilPosition(position) {
+      const before = line.slice(0, position.column - 1);
+      const after = line.slice(position.column - 1);
+      const startMatch = before.match(/[a-zA-Z0-9_.]+$/);
+      const endMatch = after.match(/^[a-zA-Z0-9_.]*/);
+      const startColumn = (startMatch ? before.length - startMatch[0].length : before.length) + 1;
+      const endColumn = before.length + (endMatch ? endMatch[0].length : 0) + 1;
+      return {
+        word: startMatch?.[0] ?? '',
+        startColumn,
+        endColumn,
+      };
+    },
+  };
 }
 
 function createSurfaceHarness(options = {}) {

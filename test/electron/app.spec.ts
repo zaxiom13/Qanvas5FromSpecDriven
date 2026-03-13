@@ -238,4 +238,49 @@ answer:select totalRevenue:sum revenue by city from sales where city in \`London
       await app.close();
     }
   });
+
+  test('top-level show output stays grouped with its table header', async () => {
+    const app = await launchApp();
+    const page = await app.firstWindow();
+
+    try {
+      await replaceEditorText(page, `sales:([]
+  city:\`London\`London\`Paris\`Paris\`Berlin\`Berlin;
+  quarter:\`Q1\`Q2\`Q1\`Q2\`Q1\`Q2;
+  revenue:120 140 90 110 80 70;
+);
+
+show select totalRevenue: sum revenue by city from sales;
+
+setup:{
+  \`size\`bg!(800 600;0xF4ECD8)
+}
+
+draw:{[state;frameInfo;input;canvas]
+  state
+}
+`);
+
+      await page.locator('#btn-run').click();
+      await expect(page.locator('#console-output')).toContainText('city');
+      await expect(page.locator('#console-output')).toContainText('Paris');
+
+      const lines = await page.locator('#console-output .console-line .console-text').allInnerTexts();
+      const runningIndex = lines.indexOf('▶ Running sketch.q');
+      const headerIndex = lines.indexOf('city | totalRevenue');
+      const dividerIndex = lines.indexOf('------| ------------');
+      const berlinIndex = lines.indexOf('Berlin| 150');
+      const londonIndex = lines.indexOf('London| 260');
+      const parisIndex = lines.indexOf('Paris | 200');
+
+      expect(runningIndex).toBeGreaterThanOrEqual(0);
+      expect(headerIndex).toBeGreaterThan(runningIndex);
+      expect(dividerIndex).toBeGreaterThan(headerIndex);
+      expect(berlinIndex).toBeGreaterThan(dividerIndex);
+      expect(londonIndex).toBeGreaterThan(berlinIndex);
+      expect(parisIndex).toBeGreaterThan(londonIndex);
+    } finally {
+      await app.close();
+    }
+  });
 });
