@@ -11,6 +11,8 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test:e2e": "npm run build && playwright test",
+    "test:ui": "node --test test/ui/*.test.mjs",
+    "test:mutation": "npm run test:ui && npm run test:runtime",
     "test:runtime": "node --test test/runtime/*.test.mjs",
     "start": "npm run build && electron ."
   },

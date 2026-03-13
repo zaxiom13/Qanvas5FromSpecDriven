@@ -48,6 +48,12 @@ type RuntimeFramePayload = {
   canvas: Record<string, unknown>;
 };
 
+type RuntimeQueryPayload = {
+  runtimePath: string;
+  files: SketchFilePayload[];
+  expression: string;
+};
+
 let mainWindow: BrowserWindow | null = null;
 const PROJECT_META_FILE = '.qanvas.json';
 const PROJECTS_DIR_NAME = 'Qanvas5 Projects';
@@ -289,6 +295,131 @@ function countChar(value: string, target: string) {
 
 function qString(value: string) {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
+  const runtimePath = payload.runtimePath?.trim();
+  if (!runtimePath) {
+    throw new Error('q runtime path is missing. Configure the q binary in Settings.');
+  }
+
+  if (!Array.isArray(payload.files) || payload.files.length === 0) {
+    throw new Error('No q source files are loaded for this verification.');
+  }
+
+  const expression = payload.expression?.trim();
+  if (!expression) {
+    throw new Error('No verification expression was provided.');
+  }
+
+  const bootSource = await fs.readFile(path.join(app.getAppPath(), 'runtime', 'boot.q'), 'utf8');
+  const runtimeFiles = payload.files
+    .filter((file) => file.name.endsWith('.q'))
+    .sort((left, right) => {
+      if (left.name === 'practice.q') return 1;
+      if (right.name === 'practice.q') return -1;
+      if (left.name === 'sketch.q') return 1;
+      if (right.name === 'sketch.q') return -1;
+      return left.name.localeCompare(right.name);
+    });
+
+  if (!runtimeFiles.length) {
+    throw new Error('The project must include at least one q source file.');
+  }
+
+  const child = spawn(runtimePath, ['-q'], { stdio: 'pipe' });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+
+  const send = async (command: string) => {
+    child.stdin.write(`${command}\n`);
+  };
+
+  const sendScript = async (source: string) => {
+    const normalized = normalizeQScript(source);
+    for (const statement of normalized) {
+      await send(statement);
+    }
+  };
+
+  return await new Promise<{ ok: boolean; value?: unknown; error?: string }>((resolve, reject) => {
+    let settled = false;
+    let stdoutBuffer = '';
+
+    const finish = (result: { ok: boolean; value?: unknown; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolve(result);
+    };
+
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+
+    child.stderr.on('data', (chunk: string) => {
+      const text = chunk.trim();
+      if (!text) return;
+      finish({ ok: false, error: text });
+    });
+
+    child.stdout.on('data', (chunk: string) => {
+      stdoutBuffer += chunk;
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        if (trimmed.startsWith('__QANVAS_QUERY__')) {
+          try {
+            finish({ ok: true, value: JSON.parse(trimmed.slice('__QANVAS_QUERY__'.length)) });
+          } catch (error) {
+            finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
+          }
+          return;
+        }
+
+        if (trimmed.startsWith('__QANVAS_ERROR__')) {
+          finish({ ok: false, error: trimmed.slice('__QANVAS_ERROR__'.length) || 'q runtime error' });
+          return;
+        }
+      }
+    });
+
+    child.on('exit', (code) => {
+      if (settled) return;
+      if (stdoutBuffer.trim().startsWith('__QANVAS_QUERY__')) {
+        try {
+          finish({ ok: true, value: JSON.parse(stdoutBuffer.trim().slice('__QANVAS_QUERY__'.length)) });
+          return;
+        } catch (error) {
+          finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
+          return;
+        }
+      }
+
+      finish({ ok: false, error: code === 0 ? 'Verification did not produce a result.' : `q exited with code ${code}` });
+    });
+
+    void (async () => {
+      try {
+        await sendScript(bootSource);
+        for (const file of runtimeFiles) {
+          await sendScript(file.content);
+        }
+        await send(`@[{-1 "__QANVAS_QUERY__",.j.j value parse x};${qString(expression)};{-1 "__QANVAS_ERROR__",.qv.errmsg x}]`);
+      } catch (error) {
+        if (settled) return;
+        settled = true;
+        child.kill();
+        reject(error);
+      }
+    })();
+  });
 }
 
 function getProjectsRoot() {
@@ -618,6 +749,7 @@ ipcMain.handle('runtime:frame', async (_event, payload: RuntimeFramePayload) => 
     throw error;
   }
 });
+ipcMain.handle('runtime:query', async (_event, payload: RuntimeQueryPayload) => evaluateRuntimeQuery(payload));
 ipcMain.handle('runtime:stop', async () => runtimeSession.stop());
 
 app.whenReady().then(createWindow);

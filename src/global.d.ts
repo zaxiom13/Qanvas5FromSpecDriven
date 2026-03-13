@@ -55,6 +55,18 @@ declare global {
     canvas: Record<string, unknown>;
   };
 
+  type RuntimeQueryPayload = {
+    runtimePath: string;
+    files: SketchFile[];
+    expression: string;
+  };
+
+  type RuntimeQueryResult = {
+    ok: boolean;
+    value?: unknown;
+    error?: string;
+  };
+
   interface Window {
     electronAPI: {
       pickAssets: () => Promise<string[]>;
@@ -65,6 +77,7 @@ declare global {
       detectRuntime: () => Promise<string | null>;
       startRuntime: (payload: RuntimeStartPayload) => Promise<Record<string, unknown>>;
       frameRuntime: (payload: RuntimeFramePayload) => Promise<Record<string, unknown>[]>;
+      queryRuntime: (payload: RuntimeQueryPayload) => Promise<RuntimeQueryResult>;
       stopRuntime: () => Promise<void>;
       onMenuEvent: (channel: string, callback: () => void) => () => void;
       onRuntimeStdout: (callback: (value: string) => void) => () => void;

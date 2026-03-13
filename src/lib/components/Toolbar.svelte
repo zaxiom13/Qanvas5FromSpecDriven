@@ -57,6 +57,24 @@
   </div>
 
   <div class="toolbar-center">
+    <div class="workspace-switch" role="tablist" aria-label="Workspace mode">
+      <button
+        class="workspace-switch-btn"
+        type="button"
+        class:is-active={appState.workspaceMode === 'studio'}
+        onclick={() => appState.setWorkspaceMode('studio')}
+      >
+        Studio
+      </button>
+      <button
+        class="workspace-switch-btn"
+        type="button"
+        class:is-active={appState.workspaceMode === 'practice'}
+        onclick={() => appState.setWorkspaceMode('practice')}
+      >
+        Practice
+      </button>
+    </div>
     <button id="btn-run" class="btn-toolbar btn-run" type="button" class:running={appState.running && !appState.paused} title="Run sketch" disabled={!appState.runtimeOk} onclick={() => (appState.running ? void appState.stopSketch() : void appState.runSketch())}>
       <svg class="icon btn-run-icon" viewBox="0 0 16 16" fill="none">
         {#if appState.running && !appState.paused}

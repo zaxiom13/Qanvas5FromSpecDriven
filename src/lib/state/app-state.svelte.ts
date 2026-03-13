@@ -1,12 +1,16 @@
 import { EXAMPLES } from '$lib/examples';
+import { PRACTICE_CHALLENGES, getPracticeChallenge } from '$lib/practice-challenges';
 
 const STORAGE_KEYS = {
   runtimePath: 'runtimePath',
   projectName: 'qanvas5:projectName',
   sidebarCollapsed: 'qanvas5:sidebarCollapsed',
+  workspaceMode: 'qanvas5:workspaceMode',
+  practiceChallengeId: 'qanvas5:practiceChallengeId',
 };
 
 const DEFAULT_PROJECT_NAME = 'untitled';
+const PRACTICE_FILE_NAME = 'practice.q';
 
 export const DEFAULT_SKETCH = `setup:{
   \`size\`bg!(800 600;0xF4ECD8)
@@ -30,6 +34,13 @@ const SKETCH_NOUNS = ['spiral', 'glow', 'bloom', 'ripple', 'drift', 'garden', 'e
 type OverlayMode = 'idle' | 'running' | 'stopped' | 'error' | 'runtime-missing';
 type ModalName = null | 'settings' | 'new-file' | 'examples' | 'projects' | 'export-gif' | 'unsaved';
 type UnsavedDecision = 'continue' | 'discard' | 'cancel';
+type WorkspaceMode = 'studio' | 'practice';
+type PracticeVerification = {
+  status: 'idle' | 'match' | 'mismatch' | 'error';
+  actual: unknown;
+  expected: unknown;
+  message: string;
+};
 
 function readStored(key: string) {
   try {
@@ -77,6 +88,9 @@ class AppState {
   showFps = $state(false);
   fps = $state(0);
   currentCanvasSize = $state<[number, number]>([1200, 800]);
+  workspaceMode = $state<WorkspaceMode>(readStored(STORAGE_KEYS.workspaceMode) === 'practice' ? 'practice' : 'studio');
+  practiceChallengeId = $state(readStored(STORAGE_KEYS.practiceChallengeId) || PRACTICE_CHALLENGES[0].id);
+  practiceVerification = $state<PracticeVerification | null>(null);
 
   sidebarCollapsed = $state(readStored(STORAGE_KEYS.sidebarCollapsed) === '1');
   consoleFilter = $state<'all' | 'stdout' | 'stderr'>('all');
@@ -116,6 +130,14 @@ class AppState {
 
   get filteredExamples() {
     return EXAMPLES.filter((example) => this.exampleCategory === 'All' || example.category === this.exampleCategory);
+  }
+
+  get practiceChallenges() {
+    return PRACTICE_CHALLENGES;
+  }
+
+  get activePracticeChallenge() {
+    return getPracticeChallenge(this.practiceChallengeId);
   }
 
   initialize() {
@@ -176,6 +198,18 @@ class AppState {
     this.showFps = !this.showFps;
   }
 
+  setWorkspaceMode(mode: WorkspaceMode) {
+    this.workspaceMode = mode;
+    writeStored(STORAGE_KEYS.workspaceMode, mode);
+    this.practiceVerification = null;
+  }
+
+  setPracticeChallenge(challengeId: string) {
+    this.practiceChallengeId = getPracticeChallenge(challengeId).id;
+    writeStored(STORAGE_KEYS.practiceChallengeId, this.practiceChallengeId);
+    this.practiceVerification = null;
+  }
+
   startProjectRename() {
     this.renamingProject = true;
     this.projectNameDraft = this.projectName;
@@ -206,6 +240,7 @@ class AppState {
   updateActiveFileContent(content: string) {
     if (this.activeFile?.content === content) return;
     this.files = this.files.map((file) => (file.name === this.activeFileName ? { ...file, content } : file));
+    this.practiceVerification = null;
     this.markDirty({ refreshRuntime: true });
   }
 
@@ -450,6 +485,78 @@ class AppState {
       }
 
       await this.startRuntimeFromProject(`▶ Running ${this.activeFileName}`);
+    });
+  }
+
+  loadPracticeStarter() {
+    const challenge = this.activePracticeChallenge;
+    const nextFiles = this.files.some((file) => file.name === PRACTICE_FILE_NAME)
+      ? this.files.map((file) => (file.name === PRACTICE_FILE_NAME ? { ...file, content: challenge.starterCode } : file))
+      : [{ name: PRACTICE_FILE_NAME, content: challenge.starterCode }, ...this.files];
+
+    this.files = nextFiles;
+    this.activeFileName = PRACTICE_FILE_NAME;
+    this.practiceVerification = null;
+    this.setWorkspaceMode('practice');
+    this.markDirty({ refreshRuntime: true });
+    this.appendConsole('info', `Loaded practice starter: ${challenge.title}`);
+  }
+
+  async verifyPracticeAnswer() {
+    const challenge = this.activePracticeChallenge;
+    this.practiceVerification = null;
+
+    await this.withRuntimeLock(async () => {
+      try {
+        if (!this.runtimeOk) {
+          await this.primeRuntimePath();
+          if (!this.runtimeOk) {
+            this.practiceVerification = {
+              status: 'error',
+              actual: null,
+              expected: challenge.expected,
+              message: 'Configure the q runtime before verifying practice answers.',
+            };
+            return;
+          }
+        }
+
+        const runtimeFiles = this.files.filter((file) => file.name.endsWith('.q'));
+        const result = await window.electronAPI.queryRuntime({
+          runtimePath: this.runtimePath,
+          files: runtimeFiles.map((file) => ({ ...file })),
+          expression: challenge.answerExpression,
+        });
+
+        if (!result.ok) {
+          this.practiceVerification = {
+            status: 'error',
+            actual: null,
+            expected: challenge.expected,
+            message: result.error || 'Verification failed.',
+          };
+          this.appendConsole('stderr', result.error || 'Verification failed.');
+          return;
+        }
+
+        const matches = stableValue(result.value) === stableValue(challenge.expected);
+        this.practiceVerification = {
+          status: matches ? 'match' : 'mismatch',
+          actual: result.value,
+          expected: challenge.expected,
+          message: matches ? 'Answer matches the expected output.' : 'Output is valid q data, but it does not match the expected answer yet.',
+        };
+        this.appendConsole('info', matches ? `Verified: ${challenge.title}` : `Checked: ${challenge.title}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.practiceVerification = {
+          status: 'error',
+          actual: null,
+          expected: challenge.expected,
+          message,
+        };
+        this.appendConsole('stderr', message);
+      }
     });
   }
 
@@ -709,3 +816,12 @@ class AppState {
 }
 
 export const appState = new AppState();
+
+function stableValue(value: unknown) {
+  return JSON.stringify(value, (_key, entry) => {
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      return Object.fromEntries(Object.entries(entry as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)));
+    }
+    return entry;
+  });
+}

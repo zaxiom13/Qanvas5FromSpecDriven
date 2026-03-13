@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   detectRuntime: () => ipcRenderer.invoke('runtime:detect'),
   startRuntime: (payload: unknown) => ipcRenderer.invoke('runtime:start', payload),
   frameRuntime: (payload: unknown) => ipcRenderer.invoke('runtime:frame', payload),
+  queryRuntime: (payload: unknown) => ipcRenderer.invoke('runtime:query', payload),
   stopRuntime: () => ipcRenderer.invoke('runtime:stop'),
   onMenuEvent: (channel: string, callback: () => void) => {
     const valid = ['menu:new-sketch', 'menu:open-project', 'menu:save', 'menu:save-as', 'menu:toggle-comment'];

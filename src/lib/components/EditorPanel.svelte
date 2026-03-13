@@ -45,7 +45,7 @@
         <path d="M4 2h6l3 3v9H4V2z" stroke="currentColor" stroke-width="1" fill="none" />
         <path d="M10 2v3h3" stroke="currentColor" stroke-width="1" fill="none" />
       </svg>
-      <span id="active-tab-name">{appState.activeFileName}</span>
+      <span id="active-tab-name">{appState.workspaceMode === 'practice' ? 'Practice Editor' : appState.activeFileName}</span>
     </div>
   </div>
 
