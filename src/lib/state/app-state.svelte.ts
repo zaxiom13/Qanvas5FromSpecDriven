@@ -1,5 +1,24 @@
 import { EXAMPLES } from '$lib/examples';
 import { PRACTICE_CHALLENGES, getPracticeChallenge } from '$lib/practice-challenges';
+import {
+  beginRuntimeStart,
+  beginRuntimeStop,
+  completeQueuedRuntimeStep,
+  completeRuntimeStart,
+  completeRuntimeStop,
+  createRuntimeControlState,
+  exitRuntime,
+  failRuntime,
+  hasLiveRuntimeSession,
+  isRuntimeActive,
+  isRuntimePaused,
+  isRuntimeTransitioning,
+  pauseRuntime,
+  queueRuntimeStep,
+  recordRuntimeFrame,
+  resumeRuntime,
+  type RuntimeFrameKind,
+} from '$lib/state/runtime-control-fsm';
 
 const STORAGE_KEYS = {
   runtimePath: 'runtimePath',
@@ -81,9 +100,7 @@ class AppState {
   runtimeDetectStatus = $state('');
   runtimeDetectTone = $state<'idle' | 'ok' | 'error'>('idle');
 
-  running = $state(false);
-  paused = $state(false);
-  runtimeTransitioning = $state(false);
+  runtimeControl = $state(createRuntimeControlState());
   overlayMode = $state<OverlayMode>(this.runtimeOk ? 'idle' : 'runtime-missing');
   overlayMessage = $state('');
   showFps = $state(false);
@@ -92,8 +109,6 @@ class AppState {
   workspaceMode = $state<WorkspaceMode>(readStored(STORAGE_KEYS.workspaceMode) === 'practice' ? 'practice' : 'studio');
   practiceChallengeId = $state(readStored(STORAGE_KEYS.practiceChallengeId) || PRACTICE_CHALLENGES[0].id);
   practiceVerification = $state<PracticeVerification | null>(null);
-  debugPendingSteps = $state(0);
-  debugFrameNumber = $state(0);
 
   sidebarCollapsed = $state(readStored(STORAGE_KEYS.sidebarCollapsed) === '1');
   consoleFilter = $state<'all' | 'stdout' | 'stderr'>('all');
@@ -137,6 +152,26 @@ class AppState {
       : this.consoleEntries.filter((entry) => entry.type === this.consoleFilter);
   }
 
+  get running() {
+    return isRuntimeActive(this.runtimeControl);
+  }
+
+  get paused() {
+    return isRuntimePaused(this.runtimeControl);
+  }
+
+  get runtimeTransitioning() {
+    return isRuntimeTransitioning(this.runtimeControl);
+  }
+
+  get debugPendingSteps() {
+    return this.runtimeControl.pendingSteps;
+  }
+
+  get debugFrameNumber() {
+    return this.runtimeControl.frameNumber;
+  }
+
   get exampleCategories() {
     return ['All', ...new Set(EXAMPLES.map((example) => example.category))];
   }
@@ -173,10 +208,9 @@ class AppState {
         return;
       }
 
-      if (!this.running) return;
+      if (!hasLiveRuntimeSession(this.runtimeControl)) return;
       this.appendConsole('info', `q process exited (code ${code})`);
-      this.running = false;
-      this.paused = false;
+      this.runtimeControl = exitRuntime(this.runtimeControl);
       this.overlayMode = this.runtimeOk ? 'idle' : 'runtime-missing';
     });
 
@@ -542,18 +576,14 @@ class AppState {
       if (!this.running) {
         const started = await this.startRuntimeFromProject('↦ Setup step', { paused: true });
         if (started) {
-          this.debugFrameNumber = 0;
           this.appendConsole('info', 'Setup completed. Press Step again for frame 0.');
         }
         return;
       }
 
-      if (!this.paused) {
-        this.paused = true;
-      }
-
-      this.debugPendingSteps += 1;
-      this.appendConsole('info', `↦ Frame ${this.debugFrameNumber}`);
+      const nextFrame = this.debugFrameNumber;
+      this.runtimeControl = queueRuntimeStep(this.runtimeControl);
+      this.appendConsole('info', `↦ Frame ${nextFrame}`);
     });
   }
 
@@ -677,8 +707,12 @@ class AppState {
 
   pauseSketch() {
     if (!this.running) return;
-    this.paused = !this.paused;
-    this.appendConsole('info', this.paused ? '⏸ Paused' : '▶ Resumed');
+    const nextState = this.paused
+      ? resumeRuntime(this.runtimeControl)
+      : pauseRuntime(this.runtimeControl);
+    const message = nextState.mode === 'paused' ? '⏸ Paused' : '▶ Resumed';
+    this.runtimeControl = nextState;
+    this.appendConsole('info', message);
   }
 
   handleRuntimeError(message: string) {
@@ -686,9 +720,7 @@ class AppState {
       return;
     }
 
-    this.running = false;
-    this.paused = false;
-    this.runtimeTransitioning = false;
+    this.runtimeControl = failRuntime(this.runtimeControl);
     this.overlayMode = 'error';
     this.overlayMessage = message;
     this.appendConsole('stderr', message);
@@ -702,12 +734,12 @@ class AppState {
     this.fps = value;
   }
 
-  setDebugFrameNumber(value: number) {
-    this.debugFrameNumber = value;
+  recordRenderedFrame(kind: RuntimeFrameKind) {
+    this.runtimeControl = recordRuntimeFrame(this.runtimeControl, kind);
   }
 
   completeDebugStep() {
-    this.debugPendingSteps = Math.max(0, this.debugPendingSteps - 1);
+    this.runtimeControl = completeQueuedRuntimeStep(this.runtimeControl);
   }
 
   generateSketchName() {
@@ -820,8 +852,8 @@ class AppState {
       return false;
     }
 
-    this.runtimeTransitioning = true;
     await this.stopRuntimeInternal(true);
+    this.runtimeControl = beginRuntimeStart(this.runtimeControl, options.paused ? 'step' : 'run');
     this.appendConsole('info', message);
 
     try {
@@ -830,17 +862,12 @@ class AppState {
         projectPath: this.projectPath,
         files: runtimeFiles.map((file) => ({ ...file })),
       });
-      this.running = true;
-      this.paused = Boolean(options.paused);
-      this.runtimeTransitioning = false;
+      this.runtimeControl = completeRuntimeStart(this.runtimeControl);
       this.overlayMode = 'running';
       this.overlayMessage = '';
-      this.debugPendingSteps = 0;
-      this.debugFrameNumber = 0;
       this.runNonce += 1;
       return true;
     } catch (error) {
-      this.runtimeTransitioning = false;
       this.handleRuntimeError(error instanceof Error ? error.message : String(error));
       return false;
     }
@@ -848,21 +875,18 @@ class AppState {
 
   private async stopRuntimeInternal(quiet = false) {
     this.runtimeRefreshWanted = false;
-    this.runtimeTransitioning = true;
-    this.expectedRuntimeStop = this.running;
+    const wasRunning = this.running;
+    this.runtimeControl = beginRuntimeStop(this.runtimeControl);
+    this.expectedRuntimeStop = wasRunning;
     this.stopStepHold();
 
-    if (this.running) {
+    if (wasRunning) {
       this.ignoreNextRuntimeExit = true;
       await window.electronAPI.stopRuntime();
     }
 
     this.expectedRuntimeStop = false;
-    this.running = false;
-    this.paused = false;
-    this.runtimeTransitioning = false;
-    this.debugPendingSteps = 0;
-    this.debugFrameNumber = 0;
+    this.runtimeControl = completeRuntimeStop(this.runtimeControl);
     this.runNonce += 1;
 
     if (!quiet) {

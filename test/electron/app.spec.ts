@@ -185,6 +185,51 @@ test.describe('Qanvas5 Electron app', () => {
     }
   });
 
+  test('step, resume, stop, and step again keep the runtime controls stable', async () => {
+    const app = await launchApp();
+    const page = await app.firstWindow();
+
+    try {
+      const runButton = page.locator('#btn-run');
+      const stepButton = page.locator('#btn-step');
+      const pauseButton = page.locator('#btn-pause');
+      const pauseLabel = page.locator('.btn-pause-label');
+
+      await expect(runButton).toBeEnabled({ timeout: 15_000 });
+
+      await stepButton.click();
+      await expect(page.locator('#console-output')).toContainText('Setup completed. Press Step again for frame 0.', { timeout: 15_000 });
+      await expect(pauseLabel).toHaveText('Resume');
+
+      await stepButton.click();
+      await expect(page.locator('#console-output')).toContainText('↦ Frame 0', { timeout: 15_000 });
+
+      await pauseButton.click();
+      await expect(pauseLabel).toHaveText('Pause', { timeout: 15_000 });
+
+      await page.waitForTimeout(200);
+      await pauseButton.click();
+      await expect(pauseLabel).toHaveText('Resume', { timeout: 15_000 });
+
+      await stepButton.click();
+      await expect(page.locator('#console-output')).toContainText('↦ Frame 1', { timeout: 15_000 });
+
+      await pauseButton.click();
+      await expect(pauseLabel).toHaveText('Pause', { timeout: 15_000 });
+
+      await runButton.click();
+      await expect(page.locator('.overlay-label')).toHaveText('Sketch stopped', { timeout: 15_000 });
+
+      await stepButton.click();
+      await expect(page.locator('#console-output')).toContainText('Setup completed. Press Step again for frame 0.', { timeout: 15_000 });
+      await expect(pauseLabel).toHaveText('Resume');
+      await expect(page.locator('.overlay-label')).not.toHaveText('Sketch error');
+      await expect(page.locator('#console-output')).not.toContainText('q runtime is not running.');
+    } finally {
+      await app.close();
+    }
+  });
+
   test('sidebar collapse toggle hides the rail and exposes the expand affordance', async () => {
     const app = await launchApp();
     const page = await app.firstWindow();

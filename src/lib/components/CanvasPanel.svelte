@@ -98,7 +98,7 @@
 
       appState.setFps(surface.updateFps(now));
       frameNumber += 1;
-      appState.setDebugFrameNumber(frameNumber);
+      appState.recordRenderedFrame(allowPaused ? 'manual' : 'continuous');
       lastTime = now;
     } catch (error) {
       if (!isExpectedFrameStop(error)) {
@@ -169,7 +169,6 @@
         startTime = 0;
         lastTime = 0;
         activeRunNonce = nonce;
-        appState.setDebugFrameNumber(0);
         return;
       }
 
