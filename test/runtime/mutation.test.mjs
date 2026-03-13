@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const workspaceRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 const bootSource = fs.readFileSync(path.join(workspaceRoot, 'runtime', 'boot.q'), 'utf8');
 const { EXAMPLES } = loadTsExports(path.join(workspaceRoot, 'src', 'lib', 'examples.ts'));
+const { PRACTICE_CHALLENGES } = loadTsExports(path.join(workspaceRoot, 'src', 'lib', 'practice-challenges.ts'));
 
 const exampleInputs = {
   'hello-circle': {
@@ -100,6 +101,46 @@ assert.equal(runtimeCases.length, 100, `expected 100 runtime mutation tests, fou
 for (const { name, run } of runtimeCases) {
   test(name, run);
 }
+
+test('runtime parser keeps multiline table assignments intact for verification-style code', () => {
+  const result = runBoot([
+    ...normalizeQScript(`sales:([]
+  city:\`London\`London\`Paris\`Paris\`Berlin\`Berlin;
+  quarter:\`Q1\`Q2\`Q1\`Q2\`Q1\`Q2;
+  revenue:120 140 90 110 80 70;
+);
+answer:sales;
+.qv.emitjson["TRACE";flip answer];`),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const trace = parseTaggedJson(result.stdoutLines, 'TRACE');
+  assert.deepEqual(trace.city, ['London', 'London', 'Paris', 'Paris', 'Berlin', 'Berlin']);
+  assert.deepEqual(trace.quarter, ['Q1', 'Q2', 'Q1', 'Q2', 'Q1', 'Q2']);
+  assert.deepEqual(trace.revenue, [120, 140, 90, 110, 80, 70]);
+});
+
+test('practice verification normalizes keyed table answers before comparison', () => {
+  const challenge = PRACTICE_CHALLENGES.find((entry) => entry.id === 'city-revenue-rollup');
+  assert.ok(challenge, 'missing city revenue rollup challenge');
+
+  const result = runBoot([
+    ...normalizeQScript(`sales:([]
+  city:\`London\`London\`Paris\`Paris\`Berlin\`Berlin;
+  quarter:\`Q1\`Q2\`Q1\`Q2\`Q1\`Q2;
+  revenue:120 140 90 110 80 70;
+);
+answer:select totalRevenue:sum revenue by city from sales where city in \`London\`Paris;
+.qv.emitjson["TRACE"; value parse ${qString(challenge.answerExpression)}];`),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const trace = parseTaggedJson(result.stdoutLines, 'TRACE');
+  assert.deepEqual(trace, {
+    city: ['London', 'Paris'],
+    totalRevenue: [260, 200],
+  });
+});
 
 function createBridgeCases() {
   const scalarCases = [
@@ -476,27 +517,31 @@ function parseTaggedJson(lines, kind) {
 function normalizeQScript(source) {
   const statements = [];
   let buffer = '';
-  let braceDepth = 0;
+  let delimiterDepth = 0;
 
   for (const rawLine of source.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line || (braceDepth === 0 && line.startsWith('/'))) {
+    if (!line || (delimiterDepth === 0 && line.startsWith('/'))) {
       continue;
     }
 
     buffer = buffer ? `${buffer} ${line}` : line;
-    braceDepth += countChar(line, '{');
-    braceDepth -= countChar(line, '}');
+    delimiterDepth += countChar(line, '{');
+    delimiterDepth -= countChar(line, '}');
+    delimiterDepth += countChar(line, '(');
+    delimiterDepth -= countChar(line, ')');
+    delimiterDepth += countChar(line, '[');
+    delimiterDepth -= countChar(line, ']');
 
-    if (braceDepth <= 0) {
-      statements.push(buffer);
+    if (delimiterDepth <= 0) {
+      statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
       buffer = '';
-      braceDepth = 0;
+      delimiterDepth = 0;
     }
   }
 
   if (buffer) {
-    statements.push(buffer);
+    statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
   }
 
   return statements;

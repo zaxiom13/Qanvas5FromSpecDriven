@@ -18,7 +18,7 @@
     </button>
   </div>
   <div id="console-output" class="console-output">
-    {#each appState.filteredConsole as entry (entry.ts)}
+    {#each appState.filteredConsole as entry (entry.id)}
       <div class={`console-line console-line--${entry.type}`}>
         <span class="console-prefix">{entry.type === 'stdout' ? '›' : entry.type === 'stderr' ? '✕' : '—'}</span>
         <span class="console-text">{entry.text}</span>

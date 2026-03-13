@@ -263,27 +263,33 @@ const runtimeSession = new QRuntimeSession();
 function normalizeQScript(source: string) {
   const statements: string[] = [];
   let buffer = '';
-  let braceDepth = 0;
+  let delimiterDepth = 0;
 
   for (const rawLine of source.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line || (braceDepth === 0 && line.startsWith('/'))) {
+    if (!line || (delimiterDepth === 0 && line.startsWith('/'))) {
       continue;
     }
 
     buffer = buffer ? `${buffer} ${line}` : line;
-    braceDepth += countChar(line, '{');
-    braceDepth -= countChar(line, '}');
+    delimiterDepth += countChar(line, '{');
+    delimiterDepth -= countChar(line, '}');
+    delimiterDepth += countChar(line, '(');
+    delimiterDepth -= countChar(line, ')');
+    delimiterDepth += countChar(line, '[');
+    delimiterDepth -= countChar(line, ']');
 
-    if (braceDepth <= 0) {
-      statements.push(buffer);
+    if (delimiterDepth <= 0) {
+      // q rejects a trailing `;` immediately before a closing delimiter, but
+      // learners often format multiline tables that way while editing.
+      statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
       buffer = '';
-      braceDepth = 0;
+      delimiterDepth = 0;
     }
   }
 
   if (buffer) {
-    statements.push(buffer);
+    statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
   }
 
   return statements;
@@ -387,6 +393,8 @@ async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
           finish({ ok: false, error: trimmed.slice('__QANVAS_ERROR__'.length) || 'q runtime error' });
           return;
         }
+
+        sendToRenderer('runtime:stdout', trimmed);
       }
     });
 
@@ -411,7 +419,7 @@ async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
         for (const file of runtimeFiles) {
           await sendScript(file.content);
         }
-        await send(`@[{-1 "__QANVAS_QUERY__",.j.j value parse x};${qString(expression)};{-1 "__QANVAS_ERROR__",.qv.errmsg x}]`);
+        await send(`@[ {.qv.emitjson["QUERY"; value parse x]};${qString(expression)};{.qv.emit["ERROR"; .qv.errmsg x]} ]`);
       } catch (error) {
         if (settled) return;
         settled = true;

@@ -30,6 +30,13 @@ async function readEditorText(page: import('@playwright/test').Page) {
   return page.locator('#monaco-editor .view-lines').innerText();
 }
 
+async function replaceEditorText(page: import('@playwright/test').Page, text: string) {
+  await focusEditor(page);
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.insertText(text);
+}
+
 async function renameProject(page: import('@playwright/test').Page, nextName: string) {
   await page.locator('#project-name').click();
   const input = page.locator('#project-name-input');
@@ -202,5 +209,33 @@ test.describe('Qanvas5 Electron app', () => {
     const closed = app.waitForEvent('close');
     await page.close();
     await closed;
+  });
+
+  test('practice verification accepts keyed-table city revenue answers', async () => {
+    const app = await launchApp();
+    const page = await app.firstWindow();
+
+    try {
+      await page.getByRole('button', { name: 'Practice' }).click();
+      await expect(page.locator('#practice-panel')).toContainText('City Revenue Rollup');
+
+      await replaceEditorText(page, `sales:([]
+  city:\`London\`London\`Paris\`Paris\`Berlin\`Berlin;
+  quarter:\`Q1\`Q2\`Q1\`Q2\`Q1\`Q2;
+  revenue:120 140 90 110 80 70;
+);
+
+answer:select totalRevenue:sum revenue by city from sales where city in \`London\`Paris;
+`);
+
+      await page.locator('#btn-run').click();
+
+      await expect(page.locator('.practice-status')).toHaveText('match', { timeout: 15_000 });
+      await expect(page.locator('#practice-panel')).toContainText('Answer matches the expected output.');
+      await expect(page.locator('#console-output')).toContainText('Verified: City Revenue Rollup');
+      await expect(page.locator('#console-output')).not.toContainText('__QANVAS_ERROR__');
+    } finally {
+      await app.close();
+    }
   });
 });

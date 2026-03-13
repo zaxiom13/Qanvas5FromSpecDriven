@@ -18,17 +18,19 @@
   <Toolbar />
 
   <main id="workspace" class:sidebar-collapsed={appState.sidebarCollapsed}>
-    <Sidebar />
+    {#if appState.workspaceMode !== 'practice'}
+      <Sidebar />
 
-    <button
-      class="sidebar-expand-btn"
-      id="btn-sidebar-expand"
-      type="button"
-      title="Expand sidebar (Cmd+B)"
-      onclick={() => appState.toggleSidebar()}
-    >
-      <svg viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    </button>
+      <button
+        class="sidebar-expand-btn"
+        id="btn-sidebar-expand"
+        type="button"
+        title="Expand sidebar (Cmd+B)"
+        onclick={() => appState.toggleSidebar()}
+      >
+        <svg viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+    {/if}
 
     {#if appState.workspaceMode === 'practice'}
       <PracticePanel />

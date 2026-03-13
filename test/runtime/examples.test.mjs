@@ -118,27 +118,31 @@ function runSketch(code, payload) {
 function normalizeQScript(source) {
   const statements = [];
   let buffer = '';
-  let braceDepth = 0;
+  let delimiterDepth = 0;
 
   for (const rawLine of source.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line || (braceDepth === 0 && line.startsWith('/'))) {
+    if (!line || (delimiterDepth === 0 && line.startsWith('/'))) {
       continue;
     }
 
     buffer = buffer ? `${buffer} ${line}` : line;
-    braceDepth += countChar(line, '{');
-    braceDepth -= countChar(line, '}');
+    delimiterDepth += countChar(line, '{');
+    delimiterDepth -= countChar(line, '}');
+    delimiterDepth += countChar(line, '(');
+    delimiterDepth -= countChar(line, ')');
+    delimiterDepth += countChar(line, '[');
+    delimiterDepth -= countChar(line, ']');
 
-    if (braceDepth <= 0) {
-      statements.push(buffer);
+    if (delimiterDepth <= 0) {
+      statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
       buffer = '';
-      braceDepth = 0;
+      delimiterDepth = 0;
     }
   }
 
   if (buffer) {
-    statements.push(buffer);
+    statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
   }
 
   return statements;

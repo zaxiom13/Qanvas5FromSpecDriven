@@ -31,6 +31,10 @@ export type PracticeChallenge = {
   datasets: PracticeDataset[];
 };
 
+function normalizePracticeAnswer(answerName: string) {
+  return `{$[99h=type ${answerName}; flip 0!${answerName}; 98h=type ${answerName}; flip ${answerName}; ${answerName}]}[]`;
+}
+
 export const PRACTICE_CHALLENGES: PracticeChallenge[] = [
   {
     id: 'city-revenue-rollup',
@@ -40,7 +44,7 @@ export const PRACTICE_CHALLENGES: PracticeChallenge[] = [
       'Use the preloaded `sales` table to build `answer`, a table with `city` and `totalRevenue` columns. Keep only cities whose total revenue is at least 200, and sort the result by `totalRevenue` descending.',
     hint: 'The dataset is already in q form. You only need to aggregate and shape the output table.',
     answerLabel: 'Expected revenue table',
-    answerExpression: 'flip answer',
+    answerExpression: normalizePracticeAnswer('answer'),
     expected: {
       city: ['London', 'Paris'],
       totalRevenue: [260, 200],
@@ -48,7 +52,7 @@ export const PRACTICE_CHALLENGES: PracticeChallenge[] = [
     starterCode: `sales:([]
   city:\`London\`London\`Paris\`Paris\`Berlin\`Berlin;
   quarter:\`Q1\`Q2\`Q1\`Q2\`Q1\`Q2;
-  revenue:120 140 90 110 80 70
+  revenue:120 140 90 110 80 70;
 );
 
 / Build answer as a table with city and totalRevenue columns.
@@ -80,7 +84,7 @@ answer:([] city:\`symbol$(); totalRevenue:\`long$());
       'Use the preloaded `traffic` table to build `answer`, a table with `month` and `lift` columns for months where visits increased compared with the previous month. Sort by `lift` descending and keep the top two rows.',
     hint: 'Think in deltas. The left panel gives you both the rendered table and a chart so the pattern is easy to inspect before you write q.',
     answerLabel: 'Expected top lift table',
-    answerExpression: 'flip answer',
+    answerExpression: normalizePracticeAnswer('answer'),
     expected: {
       month: ['Apr', 'Jun'],
       lift: [28, 21],

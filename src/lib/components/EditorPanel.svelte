@@ -50,8 +50,8 @@
   </div>
 
   <MonacoEditor
-    activeKey={appState.activeFileName}
-    value={appState.activeFile?.content ?? ''}
-    onChange={(value) => appState.updateActiveFileContent(value)}
+    activeKey={appState.activeEditorKey}
+    value={appState.activeEditorValue}
+    onChange={(value) => appState.updateActiveEditorContent(value)}
   />
 </section>

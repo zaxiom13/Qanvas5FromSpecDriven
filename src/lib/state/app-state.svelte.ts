@@ -68,6 +68,7 @@ class AppState {
   projectNameDraft = $state(this.projectName);
   files = $state<SketchFile[]>([{ name: 'sketch.q', content: DEFAULT_SKETCH }]);
   activeFileName = $state('sketch.q');
+  practiceSource = $state(getPracticeChallenge(readStored(STORAGE_KEYS.practiceChallengeId) || PRACTICE_CHALLENGES[0].id).starterCode);
   assets = $state<AssetEntry[]>([]);
   unsaved = $state(true);
   projectsRoot = $state('');
@@ -91,6 +92,8 @@ class AppState {
   workspaceMode = $state<WorkspaceMode>(readStored(STORAGE_KEYS.workspaceMode) === 'practice' ? 'practice' : 'studio');
   practiceChallengeId = $state(readStored(STORAGE_KEYS.practiceChallengeId) || PRACTICE_CHALLENGES[0].id);
   practiceVerification = $state<PracticeVerification | null>(null);
+  debugPendingSteps = $state(0);
+  debugFrameNumber = $state(0);
 
   sidebarCollapsed = $state(readStored(STORAGE_KEYS.sidebarCollapsed) === '1');
   consoleFilter = $state<'all' | 'stdout' | 'stderr'>('all');
@@ -107,7 +110,9 @@ class AppState {
   private exportPngHandler: (() => void) | null = null;
   private exportGifHandler: ((durationSeconds: number) => void) | null = null;
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private debugStepHoldTimer: ReturnType<typeof setInterval> | null = null;
   private dirtyRevision = 0;
+  private consoleEntryId = 0;
   private runtimeRefreshWanted = false;
   private saveQueue: Promise<void> = Promise.resolve();
   private ignoreNextRuntimeExit = false;
@@ -116,6 +121,14 @@ class AppState {
 
   get activeFile(): SketchFile {
     return this.files.find((file) => file.name === this.activeFileName) ?? this.files[0];
+  }
+
+  get activeEditorKey() {
+    return this.workspaceMode === 'practice' ? `${PRACTICE_FILE_NAME}:${this.practiceChallengeId}` : this.activeFileName;
+  }
+
+  get activeEditorValue() {
+    return this.workspaceMode === 'practice' ? this.practiceSource : (this.activeFile?.content ?? '');
   }
 
   get filteredConsole() {
@@ -146,6 +159,9 @@ class AppState {
 
     this.clearConsole(true);
     this.validateRuntime();
+    if (this.workspaceMode === 'practice') {
+      this.applyPracticeStarter();
+    }
     void this.primeRuntimePath();
     void this.refreshProjectLibrary();
 
@@ -179,7 +195,8 @@ class AppState {
   }
 
   appendConsole(type: ConsoleType, text: string) {
-    this.consoleEntries = [...this.consoleEntries, { type, text, ts: Date.now() }].slice(-2000);
+    this.consoleEntryId += 1;
+    this.consoleEntries = [...this.consoleEntries, { id: this.consoleEntryId, type, text, ts: Date.now() }].slice(-2000);
   }
 
   clearConsole(withWelcome = false) {
@@ -198,16 +215,29 @@ class AppState {
     this.showFps = !this.showFps;
   }
 
-  setWorkspaceMode(mode: WorkspaceMode) {
+  async setWorkspaceMode(mode: WorkspaceMode) {
+    if (mode === this.workspaceMode && mode !== 'practice') return;
+
+    if (this.running) {
+      await this.stopSketch(true);
+    }
+
     this.workspaceMode = mode;
     writeStored(STORAGE_KEYS.workspaceMode, mode);
     this.practiceVerification = null;
+
+    if (mode === 'practice') {
+      this.applyPracticeStarter();
+    }
   }
 
   setPracticeChallenge(challengeId: string) {
     this.practiceChallengeId = getPracticeChallenge(challengeId).id;
     writeStored(STORAGE_KEYS.practiceChallengeId, this.practiceChallengeId);
     this.practiceVerification = null;
+    if (this.workspaceMode === 'practice') {
+      this.applyPracticeStarter();
+    }
   }
 
   startProjectRename() {
@@ -237,7 +267,14 @@ class AppState {
     }
   }
 
-  updateActiveFileContent(content: string) {
+  updateActiveEditorContent(content: string) {
+    if (this.workspaceMode === 'practice') {
+      if (this.practiceSource === content) return;
+      this.practiceSource = content;
+      this.practiceVerification = null;
+      return;
+    }
+
     if (this.activeFile?.content === content) return;
     this.files = this.files.map((file) => (file.name === this.activeFileName ? { ...file, content } : file));
     this.practiceVerification = null;
@@ -478,6 +515,11 @@ class AppState {
   }
 
   async runSketch() {
+    if (this.workspaceMode === 'practice') {
+      await this.verifyPracticeAnswer();
+      return;
+    }
+
     await this.withRuntimeLock(async () => {
       if (!this.runtimeOk) {
         await this.primeRuntimePath();
@@ -488,18 +530,45 @@ class AppState {
     });
   }
 
-  loadPracticeStarter() {
-    const challenge = this.activePracticeChallenge;
-    const nextFiles = this.files.some((file) => file.name === PRACTICE_FILE_NAME)
-      ? this.files.map((file) => (file.name === PRACTICE_FILE_NAME ? { ...file, content: challenge.starterCode } : file))
-      : [{ name: PRACTICE_FILE_NAME, content: challenge.starterCode }, ...this.files];
+  async stepSketch() {
+    if (this.workspaceMode !== 'studio') return;
 
-    this.files = nextFiles;
-    this.activeFileName = PRACTICE_FILE_NAME;
-    this.practiceVerification = null;
-    this.setWorkspaceMode('practice');
-    this.markDirty({ refreshRuntime: true });
-    this.appendConsole('info', `Loaded practice starter: ${challenge.title}`);
+    await this.withRuntimeLock(async () => {
+      if (!this.runtimeOk) {
+        await this.primeRuntimePath();
+        if (!this.runtimeOk) return;
+      }
+
+      if (!this.running) {
+        const started = await this.startRuntimeFromProject('↦ Setup step', { paused: true });
+        if (started) {
+          this.debugFrameNumber = 0;
+          this.appendConsole('info', 'Setup completed. Press Step again for frame 0.');
+        }
+        return;
+      }
+
+      if (!this.paused) {
+        this.paused = true;
+      }
+
+      this.debugPendingSteps += 1;
+      this.appendConsole('info', `↦ Frame ${this.debugFrameNumber}`);
+    });
+  }
+
+  startStepHold() {
+    if (this.workspaceMode !== 'studio' || this.debugStepHoldTimer) return;
+
+    this.debugStepHoldTimer = setInterval(() => {
+      void this.stepSketch();
+    }, 120);
+  }
+
+  stopStepHold() {
+    if (!this.debugStepHoldTimer) return;
+    clearInterval(this.debugStepHoldTimer);
+    this.debugStepHoldTimer = null;
   }
 
   async verifyPracticeAnswer() {
@@ -521,7 +590,9 @@ class AppState {
           }
         }
 
-        const runtimeFiles = this.files.filter((file) => file.name.endsWith('.q'));
+        const runtimeFiles = this.workspaceMode === 'practice'
+          ? [{ name: PRACTICE_FILE_NAME, content: this.practiceSource }]
+          : this.files.filter((file) => file.name.endsWith('.q'));
         const result = await window.electronAPI.queryRuntime({
           runtimePath: this.runtimePath,
           files: runtimeFiles.map((file) => ({ ...file })),
@@ -631,6 +702,14 @@ class AppState {
     this.fps = value;
   }
 
+  setDebugFrameNumber(value: number) {
+    this.debugFrameNumber = value;
+  }
+
+  completeDebugStep() {
+    this.debugPendingSteps = Math.max(0, this.debugPendingSteps - 1);
+  }
+
   generateSketchName() {
     let candidate = DEFAULT_PROJECT_NAME;
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -721,7 +800,14 @@ class AppState {
     }
   }
 
-  private async startRuntimeFromProject(message: string) {
+  private applyPracticeStarter() {
+    const challenge = this.activePracticeChallenge;
+    this.practiceSource = challenge.starterCode;
+    this.practiceVerification = null;
+    this.appendConsole('info', `Loaded practice starter: ${challenge.title}`);
+  }
+
+  private async startRuntimeFromProject(message: string, options: { paused?: boolean } = {}) {
     const runtimePath = this.runtimePath?.trim();
     if (!runtimePath) {
       this.handleRuntimeError('q runtime path is missing. Configure the q binary in Settings.');
@@ -744,10 +830,12 @@ class AppState {
         files: runtimeFiles.map((file) => ({ ...file })),
       });
       this.running = true;
-      this.paused = false;
+      this.paused = Boolean(options.paused);
       this.runtimeTransitioning = false;
       this.overlayMode = 'running';
       this.overlayMessage = '';
+      this.debugPendingSteps = 0;
+      this.debugFrameNumber = 0;
       this.runNonce += 1;
       this.appendConsole('info', message);
       return true;
@@ -762,6 +850,7 @@ class AppState {
     this.runtimeRefreshWanted = false;
     this.runtimeTransitioning = true;
     this.expectedRuntimeStop = this.running;
+    this.stopStepHold();
 
     if (this.running) {
       this.ignoreNextRuntimeExit = true;
@@ -772,6 +861,8 @@ class AppState {
     this.running = false;
     this.paused = false;
     this.runtimeTransitioning = false;
+    this.debugPendingSteps = 0;
+    this.debugFrameNumber = 0;
     this.runNonce += 1;
 
     if (!quiet) {

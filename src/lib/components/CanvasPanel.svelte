@@ -63,9 +63,9 @@
     );
   }
 
-  async function renderFrame(now: number) {
+  async function renderFrame(now: number, allowPaused = false) {
     frameHandle = 0;
-    if (!appState.running || appState.paused || inFlight || activeRunNonce !== appState.runNonce) return;
+    if (!appState.running || (!allowPaused && appState.paused) || inFlight || activeRunNonce !== appState.runNonce) return;
 
     inFlight = true;
 
@@ -98,12 +98,16 @@
 
       appState.setFps(surface.updateFps(now));
       frameNumber += 1;
+      appState.setDebugFrameNumber(frameNumber);
       lastTime = now;
     } catch (error) {
       if (!isExpectedFrameStop(error)) {
         appState.handleRuntimeError(error instanceof Error ? error.message : String(error));
       }
     } finally {
+      if (allowPaused) {
+        appState.completeDebugStep();
+      }
       inFlight = false;
       if (appState.running && !appState.paused && activeRunNonce === appState.runNonce) {
         frameHandle = requestAnimationFrame(renderFrame);
@@ -160,6 +164,15 @@
   $effect(() => {
     const nonce = appState.runNonce;
     if (nonce !== activeRunNonce && appState.running) {
+      if (appState.paused) {
+        frameNumber = 0;
+        startTime = 0;
+        lastTime = 0;
+        activeRunNonce = nonce;
+        appState.setDebugFrameNumber(0);
+        return;
+      }
+
       scheduleFrameLoop(true);
     }
   });
@@ -177,6 +190,15 @@
     if (!frameHandle) {
       scheduleFrameLoop(false);
     }
+  });
+
+  $effect(() => {
+    const pendingSteps = appState.debugPendingSteps;
+    if (!appState.running || !appState.paused || pendingSteps < 1 || inFlight || activeRunNonce !== appState.runNonce) {
+      return;
+    }
+
+    void renderFrame(performance.now(), true);
   });
 </script>
 

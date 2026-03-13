@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { appState } from '$lib/state/app-state.svelte';
 
   let projectNameInput = $state<HTMLInputElement | null>(null);
@@ -7,6 +8,19 @@
     if (!appState.renamingProject || !projectNameInput) return;
     projectNameInput.focus();
     projectNameInput.select();
+  });
+
+  onMount(() => {
+    const stop = () => appState.stopStepHold();
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    window.addEventListener('blur', stop);
+
+    return () => {
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+    };
   });
 </script>
 
@@ -75,27 +89,63 @@
         Practice
       </button>
     </div>
-    <button id="btn-run" class="btn-toolbar btn-run" type="button" class:running={appState.running && !appState.paused} title="Run sketch" disabled={!appState.runtimeOk} onclick={() => (appState.running ? void appState.stopSketch() : void appState.runSketch())}>
+
+    <button
+      id="btn-run"
+      class="btn-toolbar btn-run"
+      type="button"
+      class:running={appState.workspaceMode === 'studio' && appState.running && !appState.paused}
+      title={appState.workspaceMode === 'practice' ? 'Run verification' : 'Run sketch'}
+      onclick={() => (appState.workspaceMode === 'studio' && appState.running ? void appState.stopSketch() : void appState.runSketch())}
+    >
       <svg class="icon btn-run-icon" viewBox="0 0 16 16" fill="none">
-        {#if appState.running && !appState.paused}
+        {#if appState.workspaceMode === 'studio' && appState.running && !appState.paused}
           <rect x="4" y="2" width="8" height="12" fill="currentColor"></rect>
         {:else}
           <polygon points="4,2 14,8 4,14" fill="currentColor"></polygon>
         {/if}
       </svg>
-      <span class="btn-run-label">{appState.running && !appState.paused ? 'Stop' : 'Run'}</span>
+      <span class="btn-run-label">{appState.workspaceMode === 'studio' && appState.running && !appState.paused ? 'Stop' : 'Run'}</span>
     </button>
-    <button id="btn-pause" class="btn-toolbar btn-pause" type="button" class:paused={appState.paused} title="Pause sketch" disabled={!appState.running} onclick={() => appState.pauseSketch()}>
-      <svg class="icon" viewBox="0 0 16 16" fill="none">
-        {#if appState.paused}
-          <polygon points="4,2 14,8 4,14" fill="currentColor"></polygon>
-        {:else}
-          <rect x="3" y="2" width="4" height="12" rx="1" fill="currentColor" />
-          <rect x="9" y="2" width="4" height="12" rx="1" fill="currentColor" />
-        {/if}
-      </svg>
-      <span class="btn-pause-label">{appState.paused ? 'Resume' : 'Pause'}</span>
-    </button>
+
+    {#if appState.workspaceMode === 'studio'}
+      <button
+        id="btn-step"
+        class="btn-toolbar btn-step"
+        type="button"
+        title="Step through setup and frames"
+        onclick={() => void appState.stepSketch()}
+        onpointerdown={() => appState.startStepHold()}
+        onpointerup={() => appState.stopStepHold()}
+        onpointerleave={() => appState.stopStepHold()}
+      >
+        <svg class="icon" viewBox="0 0 16 16" fill="none">
+          <path d="M3 2v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          <path d="M6 3l7 5-7 5V3z" fill="currentColor" />
+        </svg>
+        <span>Step</span>
+      </button>
+
+      <button
+        id="btn-pause"
+        class="btn-toolbar btn-pause"
+        type="button"
+        class:paused={appState.paused}
+        title="Pause sketch"
+        disabled={!appState.running}
+        onclick={() => appState.pauseSketch()}
+      >
+        <svg class="icon" viewBox="0 0 16 16" fill="none">
+          {#if appState.paused}
+            <polygon points="4,2 14,8 4,14" fill="currentColor"></polygon>
+          {:else}
+            <rect x="3" y="2" width="4" height="12" rx="1" fill="currentColor" />
+            <rect x="9" y="2" width="4" height="12" rx="1" fill="currentColor" />
+          {/if}
+        </svg>
+        <span class="btn-pause-label">{appState.paused ? 'Resume' : 'Pause'}</span>
+      </button>
+    {/if}
   </div>
 
   <div class="toolbar-right">

@@ -59,14 +59,10 @@
     <article class="practice-card practice-card--prompt">
       <div class="practice-chip-row">
         <span class="practice-chip">{appState.activePracticeChallenge.difficulty}</span>
-        <span class="practice-chip practice-chip--ghost">answer = {appState.activePracticeChallenge.answerExpression}</span>
+        <span class="practice-chip practice-chip--ghost">define `answer`</span>
       </div>
       <p class="practice-prompt">{appState.activePracticeChallenge.prompt}</p>
       <p class="practice-hint">{appState.activePracticeChallenge.hint}</p>
-      <div class="practice-actions">
-        <button class="btn-primary" type="button" onclick={() => appState.loadPracticeStarter()}>Load Starter</button>
-        <button class="btn-secondary" type="button" onclick={() => appState.verifyPracticeAnswer()}>Verify</button>
-      </div>
     </article>
 
     <div class="practice-dataset-stack">

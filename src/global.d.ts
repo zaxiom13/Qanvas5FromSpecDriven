@@ -2,6 +2,7 @@ declare global {
   type ConsoleType = 'info' | 'stdout' | 'stderr';
 
   type ConsoleEntry = {
+    id: number;
     type: ConsoleType;
     text: string;
     ts: number;
