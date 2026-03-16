@@ -549,6 +549,7 @@ class AppState {
   }
 
   async runSketch() {
+    this.clearConsole();
     if (this.workspaceMode === 'practice') {
       await this.verifyPracticeAnswer();
       return;

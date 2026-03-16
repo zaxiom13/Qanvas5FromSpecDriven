@@ -15,18 +15,20 @@ export const EXAMPLES: ExampleSketch[] = [
     category: 'Basics',
     difficulty: 1,
     accent: '#5B6FE8',
-    description: 'A friendly circle follows the mouse and gives the canvas a first pulse of life.',
+    description: 'Five concentric rings pulse outward from the mouse like a sonar ping on a dark ocean.',
     code: `setup:{
-  \`size\`bg!(800 600;0xF4ECD8)
+  \`size\`bg!(800 600;0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
-  background[0xF4ECD8];
+  background[0x0D0D1F];
+  p:$[null~input\`mouse;0.5*canvas\`size;input\`mouse];
+  t:frameInfo\`frameNum;
   circle[([]
-    p:enlist input\`mouse;
-    r:enlist 42;
-    fill:enlist 0x5B6FE8;
-    alpha:enlist 0.9
+    p:5#enlist p;
+    r:20 40 64 92 124f + 12*sin each 0.07*t+0 10 20 30 40;
+    fill:5#enlist 0x5B6FE8;
+    alpha:0.88 0.6 0.38 0.2 0.09
   )];
   state
 }
@@ -38,22 +40,26 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Basics',
     difficulty: 1,
     accent: '#C4956E',
-    description: 'A position-based color study that turns the canvas into a warm geometric quilt.',
+    description: 'A tide of colour washes across a grid of tiles — each cell shifts hue every few frames.',
     code: `setup:{
-  \`size\`bg!(800 600;0xF4ECD8)
+  \`size\`bg!(800 600;0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
-  background[0xF4ECD8];
-  idx:til 18*14;
-  palette:(0x5B6FE8;0xC4956E;0xD1694E;0x8C6BC9);
-  tiles:([]
-    p:{(40*x mod 18;40*x div 18)} each idx;
-    s:count[idx]#enlist 36 36;
-    fill:palette idx mod count palette;
-    alpha:count[idx]#0.72
-  );
-  rect[tiles];
+  background[0x0D0D1F];
+  nc:20; nr:15;
+  cw:first[canvas\`size]%nc;
+  ch:last[canvas\`size]%nr;
+  idx:til nc*nr;
+  palette:(0x5B6FE8;0xC4956E;0xD1694E;0x8C6BC9;0xE07A52;0x4E9F92);
+  t:floor 0.03*frameInfo\`frameNum;
+  clrs:palette (idx+t) mod count palette;
+  rect[([]
+    p:flip(cw*idx mod nc;ch*idx div nc);
+    s:count[idx]#enlist (cw-2;ch-2);
+    fill:clrs;
+    alpha:count[idx]#0.9
+  )];
   state
 }
 `,
@@ -64,19 +70,21 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Motion',
     difficulty: 1,
     accent: '#7C8EF2',
-    description: 'A single ring expands and contracts with a soft sinusoidal inhale-exhale rhythm.',
+    description: 'Four concentric rings inhale and exhale at offset phases, like neon hula hoops in slow motion.',
     code: `setup:{
-  \`size\`bg!(800 600;0xF4ECD8)
+  \`size\`bg!(800 600;0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
-  background[0xF4ECD8];
+  background[0x0D0D1F];
+  t:0.05*frameInfo\`frameNum;
+  center:0.5*canvas\`size;
   circle[([]
-    p:enlist 0.5*canvas\`size;
-    r:enlist 92 + 24*sin 0.05*frameInfo\`frameNum;
-    stroke:enlist 0x5B6FE8;
-    weight:enlist 7;
-    alpha:enlist 0.88
+    p:4#enlist center;
+    r:(50 82 118 162f) + 22*sin each t+0.9*til 4;
+    stroke:(0x5B6FE8;0x7C8EF2;0xC4956E;0xE07A52);
+    weight:4#6;
+    alpha:0.8 0.6 0.42 0.25
   )];
   state
 }
@@ -88,19 +96,25 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Primitives',
     difficulty: 1,
     accent: '#5B6FE8',
-    description: 'A small study of layered strokes so the line primitive has a clear, working example.',
+    description: 'Ten coloured lines snake across the canvas in sinusoidal waves, shifting phase every frame.',
     code: `setup:{
-  \`size\`bg!(800 600;0xF4ECD8)
+  \`size\`bg!(800 600;0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
-  background[0xF4ECD8];
+  background[0x0D0D1F];
+  t:0.04*frameInfo\`frameNum;
+  w:first canvas\`size;
+  h:last canvas\`size;
+  n:10;
+  ys:h*(1+til n)%(n+1);
+  palette:(0x5B6FE8;0x7C8EF2;0xC4956E;0xE07A52;0xD1694E;0x8C6BC9;0x4E9F92;0x5B6FE8;0x7C8EF2;0xC4956E);
   line[([]
-    p:((120 170);(120 300);(120 430));
-    p2:((520 170);(520 300);(520 430));
-    stroke:(0x5B6FE8;0xC4956E;0xD1694E);
-    weight:3 6 9;
-    alpha:3#0.84
+    p:flip(n#0f;ys);
+    p2:flip(n#w*1f;ys+0.11*h*sin each t+0.7*til n);
+    stroke:palette;
+    weight:n#3;
+    alpha:n#0.7
   )];
   state
 }
@@ -112,18 +126,20 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Primitives',
     difficulty: 1,
     accent: '#C4956E',
-    description: 'A simple typographic card that exercises the text primitive directly.',
+    description: 'A typographic card stacks four lines of copy in contrasting colours on a dark ground.',
     code: `setup:{
-  \`size\`bg!(800 600;0xF4ECD8)
+  \`size\`bg!(800 600;0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
-  background[0xF4ECD8];
+  background[0x0D0D1F];
+  cx:0.5*first canvas\`size;
+  cy:0.5*last canvas\`size;
   text[([]
-    p:((132 214);(132 250);(132 304));
-    text:("Qanvas5";"real q sketches";"text[] primitive");
-    fill:(0x2C2520;0x7A6E62;0x5B6FE8);
-    alpha:3#0.94
+    p:((cx;cy-90);(cx;cy-34);(cx;cy+26);(cx;cy+76));
+    text:("q language";"data on canvas";"think in tables";"build with q");
+    fill:(0xF4ECD8;0x5B6FE8;0xC4956E;0x7C8EF2);
+    alpha:4#0.95
   )];
   state
 }
@@ -135,10 +151,10 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Primitives',
     difficulty: 1,
     accent: '#8C6BC9',
-    description: 'Embeds a tiny inline SVG so the image primitive has a working example too.',
+    description: 'An inline SVG badge sits centred on the canvas — the image[] primitive in one focused example.',
     code: `setup:{
-  img:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='24' fill='%23C4956E'/%3E%3Ccircle cx='60' cy='60' r='28' fill='%235B6FE8'/%3E%3Cpath d='M24 92c16-18 56-18 72 0' stroke='%23F4ECD8' stroke-width='10' stroke-linecap='round' fill='none'/%3E%3C/svg%3E";
-  \`size\`bg\`img!(800 600;0xF4ECD8;img)
+  img:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='60' fill='%231C1030'/%3E%3Ccircle cx='60' cy='44' r='18' fill='%235B6FE8'/%3E%3Ccircle cx='60' cy='60' r='44' fill='none' stroke='%238C6BC9' stroke-width='7'/%3E%3Cpath d='M26 88c10-18 58-18 68 0' stroke='%23C4956E' stroke-width='9' stroke-linecap='round' fill='none'/%3E%3C/svg%3E";
+  \`size\`bg\`img!(800 600;0x0D0D1F;img)
 }
 
 draw:{[state;frameInfo;input;canvas]
@@ -159,20 +175,24 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Motion',
     difficulty: 2,
     accent: '#E07A52',
-    description: 'Little sparks launch upward, arc back down, and gather into a lively fountain.',
+    description: 'Six arcs of coloured sparks launch upward each frame, arcing through gravity back to earth.',
     code: `setup:{
-  \`ticks\`bg!(([] x:\`float$();y:\`float$();vx:\`float$();vy:\`float$();life:\`float$());0xF4ECD8)
+  \`ticks\`bg!(([] x:\`float$();y:\`float$();vx:\`float$();vy:\`float$();life:\`float$());0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
   background[state\`bg];
   width:first canvas\`size;
   height:last canvas\`size;
-  emit:([] x:4#0.5*width; y:4#(height-56); vx:-1.6 -0.4 0.4 1.6; vy:-7.8 -6.6 -5.4 -4.8; life:4#72f);
+  vxs:-2.4 -1.2 -0.2 0.2 1.2 2.4;
+  vys:-9 -7.8 -6.6 -5.8 -5.2 -4.6;
+  emit:([] x:6#0.5*width; y:6#height-60f; vx:vxs; vy:vys; life:6#90f);
   ticks:(state\`ticks),emit;
-  ticks:update x:x+vx,y:y+vy,vy:vy+0.18,life:life-1 from ticks;
+  ticks:update x:x+vx,y:y+vy,vy:vy+0.22,life:life-1 from ticks;
   ticks:select from ticks where life>0;
-  circle[([] p:flip(ticks\`x;ticks\`y); r:4+0.12*ticks\`life; fill:count[ticks]#enlist 0xE07A52; alpha:count[ticks]#0.9)];
+  palette:(0xE07A52;0x5B6FE8;0xC4956E;0x8C6BC9;0x4E9F92;0xD1694E);
+  clrs:palette (til count ticks) mod count palette;
+  circle[([] p:flip(ticks\`x;ticks\`y); r:3+0.07*ticks\`life; fill:fills; alpha:(count ticks)#0.88)];
   \`ticks\`bg!(ticks;state\`bg)
 }
 `,
@@ -183,18 +203,20 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Interaction',
     difficulty: 2,
     accent: '#D1694E',
-    description: 'Each click places a persistent circle so the sketch becomes a shared digital sketchbook.',
+    description: 'Click to stamp circles that grow and cycle through a six-colour palette — your canvas, your rules.',
     code: `setup:{
-  \`marks\`bg!(([] p:();r:\`float$();fill:());0xF4ECD8)
+  \`marks\`bg!(([] p:();r:\`float$());0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
   marks:state\`marks;
   if[(input\`mouseButtons)\`left;
-    marks,:([] p:enlist input\`mouse; r:enlist 24f+4*count marks; fill:enlist 0xD1694E);
+    marks,:([] p:enlist input\`mouse; r:enlist 12f+10*count[marks] mod 5)
   ];
   background[state\`bg];
-  circle[([] p:marks\`p; r:marks\`r; fill:marks\`fill; alpha:count[marks]#0.88)];
+  palette:(0x5B6FE8;0xE07A52;0xC4956E;0x8C6BC9;0x4E9F92;0xD1694E);
+  clrs:palette (til count marks) mod count palette;
+  circle[([] p:marks\`p; r:marks\`r; fill:fills; alpha:(count marks)#0.88)];
   \`marks\`bg!(marks;state\`bg)
 }
 `,
@@ -205,14 +227,16 @@ draw:{[state;frameInfo;input;canvas]
     category: 'Interaction',
     difficulty: 2,
     accent: '#8C6BC9',
-    description: 'Drag across the canvas to leave a fading ribbon of circles that slowly disappears.',
+    description: 'Drag to paint a rainbow ribbon that fades out — each segment cycles through a vivid palette.',
     code: `setup:{
-  \`trail\`bg!(([] p:();life:\`float$());0xF4ECD8)
+  \`trail\`bg!(([] p:();life:\`float$());0x0D0D1F)
 }
 
 draw:{[state;frameInfo;input;canvas]
   trail:state\`trail;
-  if[(input\`mouseButtons)\`left; trail,:([] p:enlist input\`mouse; life:enlist 56f)];
+  if[(input\`mouseButtons)\`left;
+    trail,:([] p:enlist input\`mouse; life:enlist 64f)
+  ];
   trail:update life:life-1 from trail;
   trail:select from trail where life>0;
   background[state\`bg];

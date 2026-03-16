@@ -142,6 +142,93 @@ answer:select totalRevenue:sum revenue by city from sales where city in \`London
   });
 });
 
+test('practice verification hot-days answer produces expected filtered rows', () => {
+  const challenge = PRACTICE_CHALLENGES.find((entry) => entry.id === 'hot-days');
+  assert.ok(challenge, 'missing hot-days challenge');
+
+  const result = runBoot([
+    ...normalizeQScript(`weather:([]
+  day:\`Mon\`Tue\`Wed\`Thu\`Fri\`Sat\`Sun;
+  tempC:18 22 20 27 25 31 16
+);
+answer:\`tempC xdesc select day, tempC from weather where tempC > 24;
+.qv.emitjson["TRACE"; value parse ${qString(challenge.answerExpression)}];`),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const trace = parseTaggedJson(result.stdoutLines, 'TRACE');
+  assert.deepEqual(trace, {
+    day: ['Sat', 'Thu', 'Fri'],
+    tempC: [31, 27, 25],
+  });
+});
+
+test('practice verification monthly-lift answer produces expected top-lift rows', () => {
+  const challenge = PRACTICE_CHALLENGES.find((entry) => entry.id === 'monthly-lift');
+  assert.ok(challenge, 'missing monthly-lift challenge');
+
+  const result = runBoot([
+    ...normalizeQScript(`traffic:([]
+  month:\`Jan\`Feb\`Mar\`Apr\`May\`Jun;
+  visits:108 124 119 147 141 162
+);
+tmp:([] month:1_ traffic\`month; lift:1_ deltas traffic\`visits);
+answer:2 # \`lift xdesc select from tmp where lift > 0;
+.qv.emitjson["TRACE"; value parse ${qString(challenge.answerExpression)}];`),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const trace = parseTaggedJson(result.stdoutLines, 'TRACE');
+  assert.deepEqual(trace, {
+    month: ['Apr', 'Jun'],
+    lift: [28, 21],
+  });
+});
+
+test('practice verification dept-max-salary answer produces expected salary table', () => {
+  const challenge = PRACTICE_CHALLENGES.find((entry) => entry.id === 'dept-max-salary');
+  assert.ok(challenge, 'missing dept-max-salary challenge');
+
+  const result = runBoot([
+    ...normalizeQScript(`staff:([]
+  name:\`Alice\`Bob\`Carlos\`Diana\`Eve;
+  dept:\`Eng\`Mktg\`Eng\`Ops\`Mktg;
+  salary:95000 67000 112000 78000 71000
+);
+answer:\`maxSalary xdesc select maxSalary:max salary by dept from staff;
+.qv.emitjson["TRACE"; value parse ${qString(challenge.answerExpression)}];`),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const trace = parseTaggedJson(result.stdoutLines, 'TRACE');
+  assert.deepEqual(trace, {
+    dept: ['Eng', 'Ops', 'Mktg'],
+    maxSalary: [112000, 78000, 71000],
+  });
+});
+
+test('practice verification goal-difference answer produces expected standings', () => {
+  const challenge = PRACTICE_CHALLENGES.find((entry) => entry.id === 'goal-difference');
+  assert.ok(challenge, 'missing goal-difference challenge');
+
+  const result = runBoot([
+    ...normalizeQScript(`matches:([]
+  team:\`Arsenal\`Arsenal\`Chelsea\`Chelsea\`Spurs\`Spurs;
+  scored:2 3 1 4 0 2;
+  conceded:1 0 3 1 2 1
+);
+answer:\`goalDiff xdesc select goalDiff:sum scored-conceded by team from matches;
+.qv.emitjson["TRACE"; value parse ${qString(challenge.answerExpression)}];`),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const trace = parseTaggedJson(result.stdoutLines, 'TRACE');
+  assert.deepEqual(trace, {
+    team: ['Arsenal', 'Chelsea', 'Spurs'],
+    goalDiff: [4, 1, -1],
+  });
+});
+
 function createBridgeCases() {
   const scalarCases = [
     {
