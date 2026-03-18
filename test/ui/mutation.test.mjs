@@ -16,7 +16,7 @@ const uiCases = [
   ...createCanvasSurfaceCases(),
 ];
 
-assert.equal(uiCases.length, 108, `expected 108 UI mutation tests, found ${uiCases.length}`);
+assert.equal(uiCases.length, 110, `expected 110 UI mutation tests, found ${uiCases.length}`);
 
 for (const { name, run } of uiCases) {
   test(name, run);
@@ -51,7 +51,7 @@ function createQLanguageCases() {
     ['ui q-language surrounds double quotes', () => assert.deepEqual(plain(config.surroundingPairs[3]), { open: '"', close: '"' })],
     ['ui q-language sets a tokenizer for q', () => assert.ok(tokens)],
     ['ui q-language tokenizer has root rules', () => assert.ok(Array.isArray(tokens.tokenizer.root))],
-    ['ui q-language tokenizer exposes eleven root rules', () => assert.equal(tokens.tokenizer.root.length, 11)],
+    ['ui q-language tokenizer exposes twelve root rules', () => assert.equal(tokens.tokenizer.root.length, 12)],
     ['ui q-language defines the warm theme', () => assert.ok(theme)],
     ['ui q-language theme uses the VS base', () => assert.equal(theme.base, 'vs')],
     ['ui q-language theme inherits existing styles', () => assert.equal(theme.inherit, true)],
@@ -80,6 +80,7 @@ function createQLanguageCases() {
 
   const tokenCases = [
     ['ui q-language tokenizes slash comments', '/ comment', 'comment'],
+    ['ui q-language tokenizes each-right iterators', '/:', 'operator'],
     ['ui q-language tokenizes slash commands as keywords', '\\l file.q', 'keyword'],
     ['ui q-language tokenizes opening braces', '{', 'delimiter.curly'],
     ['ui q-language tokenizes closing braces', '}', 'delimiter.curly'],
@@ -99,6 +100,15 @@ function createQLanguageCases() {
     ['ui q-language tokenizes operators', '+', 'operator'],
     ['ui q-language tokenizes whitespace', '   ', 'white'],
   ].map(([name, sample, expectedToken]) => [name, () => assert.equal(classifyToken(tokens, sample), expectedToken)]);
+
+  tokenCases.push([
+    'ui q-language does not treat each-right expressions as comments',
+    () => {
+      const lineTokens = tokenizeLine(tokens, 'show 1j*(til 5)=/:til 5;');
+      assert.ok(lineTokens.some((token) => token.token === 'operator' && token.value === '/:'));
+      assert.ok(lineTokens.every((token) => token.token !== 'comment'));
+    },
+  ]);
 
   const completionCases = [
     ['ui q-language registers a completion provider for q', () => assert.ok(completionProvider)],
@@ -162,7 +172,7 @@ function createQLanguageCases() {
   ];
 
   const selectedCases = [...structuralCases.slice(0, 31), ...tokenCases, ...completionCases];
-  assert.equal(selectedCases.length, 58, `expected 58 q-language tests, found ${selectedCases.length}`);
+  assert.equal(selectedCases.length, 60, `expected 60 q-language tests, found ${selectedCases.length}`);
   return selectedCases.map(([name, run]) => ({ name, run }));
 }
 
@@ -705,6 +715,33 @@ function classifyToken(provider, sample) {
     }
   }
   return null;
+}
+
+function tokenizeLine(provider, sample) {
+  const tokens = [];
+  let offset = 0;
+
+  while (offset < sample.length) {
+    const slice = sample.slice(offset);
+    let matched = false;
+
+    for (const [pattern, token] of provider.tokenizer.root) {
+      const match = pattern.exec(slice);
+      if (!match || match.index !== 0) continue;
+
+      tokens.push({ token, value: match[0] });
+      offset += match[0].length;
+      matched = true;
+      break;
+    }
+
+    if (!matched) {
+      tokens.push({ token: null, value: slice[0] });
+      offset += 1;
+    }
+  }
+
+  return tokens;
 }
 
 function provideSuggestions(provider, monaco, line, lineNumber, column) {

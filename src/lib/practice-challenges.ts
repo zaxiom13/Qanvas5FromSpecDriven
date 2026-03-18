@@ -35,6 +35,99 @@ function normalizePracticeAnswer(answerName: string) {
   return `{$[99h=type ${answerName}; flip 0!${answerName}; 98h=type ${answerName}; flip ${answerName}; ${answerName}]}[]`;
 }
 
+function qLines(...lines: string[]) {
+  return lines.join('\n');
+}
+
+export const PRACTICE_SOLUTION_SNIPPETS: Record<string, string> = {
+  'city-revenue-rollup': qLines(
+    'totals:select totalRevenue:sum revenue by city from sales;',
+    'answer:`totalRevenue xdesc select city, totalRevenue from totals where totalRevenue >= 200;'
+  ),
+  'hot-days': qLines(
+    'answer:`tempC xdesc select day, tempC from weather where tempC > 24;'
+  ),
+  'monthly-lift': qLines(
+    'tmp:([] month:1_ traffic`month; lift:1_ deltas traffic`visits);',
+    'answer:2 # `lift xdesc select from tmp where lift > 0;'
+  ),
+  'dept-max-salary': qLines(
+    'answer:`maxSalary xdesc select maxSalary:max salary by dept from staff;'
+  ),
+  'goal-difference': qLines(
+    'answer:`goalDiff xdesc select goalDiff:sum scored-conceded by team from matches;'
+  ),
+  'peak-finder': qLines(
+    'answer:desc signal where (signal > prev signal) & signal > next signal;'
+  ),
+  'segment-sums': qLines(
+    'answer:desc sum each cuts _ vals;'
+  ),
+  'dot-product': qLines(
+    'answer:sum a*b;'
+  ),
+  'normalize-vector': qLines(
+    'answer:v%max v;'
+  ),
+  'running-max': qLines(
+    'answer:maxs readings;'
+  ),
+  'fibonacci-build': qLines(
+    'answer:{x,sum -2#x}/[8;1 1];'
+  ),
+  'cumulative-product': qLines(
+    'cp:prds growth;',
+    'answer:(first where cp>2),(first where cp>3),(first where cp>4);'
+  ),
+  'string-lengths': qLines(
+    'answer:desc count each words;'
+  ),
+  'matrix-row-sums': qLines(
+    'answer:desc sum each m;'
+  ),
+  'nested-max': qLines(
+    'answer:desc max each nested;'
+  ),
+  'flatten-unique': qLines(
+    'answer:asc distinct raze bags;'
+  ),
+  'transpose-matrix': qLines(
+    'answer:(flip m) 1;'
+  ),
+  'chunk-array': qLines(
+    'answer:desc sum each 4 cut flat;'
+  ),
+  'rank-scores': qLines(
+    'answer:iasc iasc scores;'
+  ),
+  'top-k-indices': qLines(
+    'answer:3 # idesc vals;'
+  ),
+  'evens-only': qLines(
+    'answer:nums where 0=nums mod 2;'
+  ),
+  'threshold-crossings': qLines(
+    'answer:where 1=deltas temp>25;'
+  ),
+  'matrix-multiply': qLines(
+    'answer:first (A mmu B);'
+  ),
+  'identity-matrix': qLines(
+    'answer:1j*(til 4)=/:til 4;'
+  ),
+  '3d-distance': qLines(
+    'd:sqrt (x*x)+(y*y)+(z*z);',
+    'answer:desc 0.01*floor 0.5+100*d;'
+  ),
+  'pairwise-diffs': qLines(
+    'd:1_deltas prices;',
+    'answer:(max d),min d;'
+  ),
+  'power-fold': qLines(
+    'answer:{x*2}\\[7;1];'
+  ),
+};
+
 export const PRACTICE_CHALLENGES: PracticeChallenge[] = [
   {
     id: 'city-revenue-rollup',
@@ -265,8 +358,916 @@ answer:([] team:\`symbol$(); goalDiff:\`long$());
       },
     ],
   },
+  {
+    id: 'peak-finder',
+    title: 'Peak Finder',
+    difficulty: 'warmup',
+    prompt:
+      'The array `signal` contains sensor readings. Build `answer` as a simple long list of the *peak* values — values that are strictly greater than both their left and right neighbor. Sort the peaks descending. (Ignore the first and last elements — they have no two neighbors.)',
+    hint: 'Compare `signal` against shifted copies: `prev signal` and `next signal` give you the left and right neighbors. Use `where` on the boolean mask to get indices, then index back into `signal`.',
+    answerLabel: 'Expected peaks (sorted desc)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [9, 8, 7, 6],
+    starterCode: `signal:3 7 4 8 5 2 9 1 6 3
+
+/ Build answer: a long list of peak values sorted descending.
+/ A peak is a value strictly greater than both its left and right neighbor.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'signal-table',
+        label: 'signal',
+        columns: ['index', 'value'],
+        rows: [
+          { index: 0, value: 3 },
+          { index: 1, value: 7 },
+          { index: 2, value: 4 },
+          { index: 3, value: 8 },
+          { index: 4, value: 5 },
+          { index: 5, value: 2 },
+          { index: 6, value: 9 },
+          { index: 7, value: 1 },
+          { index: 8, value: 6 },
+          { index: 9, value: 3 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'signal-chart',
+        label: 'Signal readings',
+        chartType: 'line',
+        xKey: 'index',
+        yKey: 'value',
+        points: [
+          { index: 0, value: 3 },
+          { index: 1, value: 7 },
+          { index: 2, value: 4 },
+          { index: 3, value: 8 },
+          { index: 4, value: 5 },
+          { index: 5, value: 2 },
+          { index: 6, value: 9 },
+          { index: 7, value: 1 },
+          { index: 8, value: 6 },
+          { index: 9, value: 3 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'segment-sums',
+    title: 'Segment Sums',
+    difficulty: 'core',
+    prompt:
+      'The array `vals` holds ten integers and `cuts` holds the start indices of three segments. Use `cuts` to split `vals` into segments, sum each segment, and build `answer` as a simple long list of those sums sorted descending.',
+    hint: '`cuts _ vals` splits the array at the given indices. Apply `sum each` to the result, then sort with `desc`.',
+    answerLabel: 'Expected segment sums (sorted desc)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [25, 13, 9],
+    starterCode: `vals:4 2 7 1 5 3 8 6 2 9
+cuts:0 3 6
+
+/ Build answer: sum each segment created by cutting vals at cuts, sorted descending.
+/ cuts _ vals splits the array. sum each totals each piece.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'vals-table',
+        label: 'vals',
+        columns: ['index', 'value'],
+        rows: [
+          { index: 0, value: 4 },
+          { index: 1, value: 2 },
+          { index: 2, value: 7 },
+          { index: 3, value: 1 },
+          { index: 4, value: 5 },
+          { index: 5, value: 3 },
+          { index: 6, value: 8 },
+          { index: 7, value: 6 },
+          { index: 8, value: 2 },
+          { index: 9, value: 9 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'vals-chart',
+        label: 'vals',
+        chartType: 'bar',
+        xKey: 'index',
+        yKey: 'value',
+        points: [
+          { index: 0, value: 4 },
+          { index: 1, value: 2 },
+          { index: 2, value: 7 },
+          { index: 3, value: 1 },
+          { index: 4, value: 5 },
+          { index: 5, value: 3 },
+          { index: 6, value: 8 },
+          { index: 7, value: 6 },
+          { index: 8, value: 2 },
+          { index: 9, value: 9 },
+        ],
+      },
+    ],
+  },
+
+  // ── Vector Arithmetic ──────────────────────────────────────────────
+
+  {
+    id: 'dot-product',
+    title: 'Dot Product',
+    difficulty: 'warmup',
+    prompt:
+      'Two vectors `a` and `b` are preloaded. Build `answer` as a single long value: the dot product of `a` and `b` (sum of element-wise products).',
+    hint: '`sum a*b` multiplies element-wise then sums. The result is an atom, not a list.',
+    answerLabel: 'Expected dot product',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: 70,
+    starterCode: `a:1 2 3 4 5
+b:2 3 4 5 6
+
+/ Build answer: the dot product (sum of a*b).
+answer:0
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'vectors-table',
+        label: 'vectors',
+        columns: ['index', 'a', 'b'],
+        rows: [
+          { index: 0, a: 1, b: 2 },
+          { index: 1, a: 2, b: 3 },
+          { index: 2, a: 3, b: 4 },
+          { index: 3, a: 4, b: 5 },
+          { index: 4, a: 5, b: 6 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'normalize-vector',
+    title: 'Normalize Vector',
+    difficulty: 'warmup',
+    prompt:
+      'The array `v` contains integers. Build `answer` as a float list where each element is divided by the maximum of `v`, so the largest value becomes 1.0.',
+    hint: '`v%max v` divides every element by the max. The `%` operator is element-wise division in q.',
+    answerLabel: 'Expected normalized vector',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [0.2, 0.6, 1.0, 0.4, 0.8],
+    starterCode: `v:10 30 50 20 40
+
+/ Build answer: v divided by its max so the peak is 1.0.
+answer:\`float$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'v-table',
+        label: 'v',
+        columns: ['index', 'value'],
+        rows: [
+          { index: 0, value: 10 },
+          { index: 1, value: 30 },
+          { index: 2, value: 50 },
+          { index: 3, value: 20 },
+          { index: 4, value: 40 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'v-chart',
+        label: 'v',
+        chartType: 'bar',
+        xKey: 'index',
+        yKey: 'value',
+        points: [
+          { index: 0, value: 10 },
+          { index: 1, value: 30 },
+          { index: 2, value: 50 },
+          { index: 3, value: 20 },
+          { index: 4, value: 40 },
+        ],
+      },
+    ],
+  },
+
+  // ── Scan & Over ────────────────────────────────────────────────────
+
+  {
+    id: 'running-max',
+    title: 'Running Max',
+    difficulty: 'warmup',
+    prompt:
+      'The array `readings` contains sensor values. Build `answer` as the running maximum array (each position holds the max of all values up to and including that index).',
+    hint: '`maxs` computes the running maximum of an array in one shot.',
+    answerLabel: 'Expected running max',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [3, 3, 5, 5, 5, 8, 8, 8, 9, 9],
+    starterCode: `readings:3 1 5 2 4 8 6 7 9 0
+
+/ Build answer: the running maximum of readings.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'readings-table',
+        label: 'readings',
+        columns: ['index', 'value'],
+        rows: [
+          { index: 0, value: 3 },
+          { index: 1, value: 1 },
+          { index: 2, value: 5 },
+          { index: 3, value: 2 },
+          { index: 4, value: 4 },
+          { index: 5, value: 8 },
+          { index: 6, value: 6 },
+          { index: 7, value: 7 },
+          { index: 8, value: 9 },
+          { index: 9, value: 0 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'readings-chart',
+        label: 'readings',
+        chartType: 'line',
+        xKey: 'index',
+        yKey: 'value',
+        points: [
+          { index: 0, value: 3 },
+          { index: 1, value: 1 },
+          { index: 2, value: 5 },
+          { index: 3, value: 2 },
+          { index: 4, value: 4 },
+          { index: 5, value: 8 },
+          { index: 6, value: 6 },
+          { index: 7, value: 7 },
+          { index: 8, value: 9 },
+          { index: 9, value: 0 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'fibonacci-build',
+    title: 'Fibonacci Build',
+    difficulty: 'core',
+    prompt:
+      'Use scan to generate the first 10 Fibonacci numbers starting from `1 1`. Build `answer` as the full 10-element long list.',
+    hint: 'The pattern `{x,sum -2#x}/[8;1 1]` seeds with `1 1` and appends the sum of the last two, 8 more times. Or use `{y,x+y}\\[8;1;1]`.',
+    answerLabel: 'Expected Fibonacci sequence',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [1, 1, 2, 3, 5, 8, 13, 21, 34, 55],
+    starterCode: `/ Build answer: first 10 Fibonacci numbers starting 1 1.
+/ Use scan (\\) or over (/) with a lambda to grow the list.
+answer:\`long$()
+`,
+    datasets: [],
+  },
+  {
+    id: 'cumulative-product',
+    title: 'Cumulative Product',
+    difficulty: 'core',
+    prompt:
+      'The array `growth` holds daily multipliers (e.g. 1.1 means +10%). Build `answer` as the indices (0-based) where the cumulative product first exceeds each whole-number threshold 2, 3, and 4.',
+    hint: '`prds growth` gives the running product. Use `where` or comparison to find the first index crossing each threshold.',
+    answerLabel: 'Expected crossing indices',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [5, 7, 9],
+    starterCode: `growth:1.2 1.15 1.1 1.25 1.05 1.3 1.1 1.2 1.15 1.1
+
+/ Build answer: list of 3 indices where cumulative product first exceeds 2, 3, 4.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'growth-table',
+        label: 'growth',
+        columns: ['day', 'multiplier'],
+        rows: [
+          { day: 0, multiplier: 1.2 },
+          { day: 1, multiplier: 1.15 },
+          { day: 2, multiplier: 1.1 },
+          { day: 3, multiplier: 1.25 },
+          { day: 4, multiplier: 1.05 },
+          { day: 5, multiplier: 1.3 },
+          { day: 6, multiplier: 1.1 },
+          { day: 7, multiplier: 1.2 },
+          { day: 8, multiplier: 1.15 },
+          { day: 9, multiplier: 1.1 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'growth-chart',
+        label: 'Daily multiplier',
+        chartType: 'bar',
+        xKey: 'day',
+        yKey: 'multiplier',
+        points: [
+          { day: 0, multiplier: 1.2 },
+          { day: 1, multiplier: 1.15 },
+          { day: 2, multiplier: 1.1 },
+          { day: 3, multiplier: 1.25 },
+          { day: 4, multiplier: 1.05 },
+          { day: 5, multiplier: 1.3 },
+          { day: 6, multiplier: 1.1 },
+          { day: 7, multiplier: 1.2 },
+          { day: 8, multiplier: 1.15 },
+          { day: 9, multiplier: 1.1 },
+        ],
+      },
+    ],
+  },
+
+  // ── Each / Map ─────────────────────────────────────────────────────
+
+  {
+    id: 'string-lengths',
+    title: 'String Lengths',
+    difficulty: 'warmup',
+    prompt:
+      'The list `words` contains strings. Build `answer` as a long list of their lengths, sorted descending.',
+    hint: '`count each words` gives the length of each string. Then `desc` sorts descending.',
+    answerLabel: 'Expected lengths (sorted desc)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [11, 7, 5, 3, 1],
+    starterCode: `words:("hello";"world!!";"q";"kdb";"programming")
+
+/ Build answer: lengths of each string, sorted descending.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'words-table',
+        label: 'words',
+        columns: ['index', 'word', 'length'],
+        rows: [
+          { index: 0, word: 'hello', length: 5 },
+          { index: 1, word: 'world!!', length: 7 },
+          { index: 2, word: 'q', length: 1 },
+          { index: 3, word: 'kdb', length: 3 },
+          { index: 4, word: 'programming', length: 11 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'matrix-row-sums',
+    title: 'Matrix Row Sums',
+    difficulty: 'core',
+    prompt:
+      'The variable `m` is a 4x3 matrix (list of 4 rows, each with 3 integers). Build `answer` as the row sums sorted descending.',
+    hint: '`sum each m` sums each row. Then `desc` sorts the results.',
+    answerLabel: 'Expected row sums (sorted desc)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [24, 24, 15, 6],
+    starterCode: `m:(1 2 3;4 5 6;7 8 9;10 6 8)
+
+/ Build answer: sum of each row, sorted descending.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'matrix-table',
+        label: 'matrix m',
+        columns: ['row', 'col0', 'col1', 'col2'],
+        rows: [
+          { row: 0, col0: 1, col1: 2, col2: 3 },
+          { row: 1, col0: 4, col1: 5, col2: 6 },
+          { row: 2, col0: 7, col1: 8, col2: 9 },
+          { row: 3, col0: 10, col1: 6, col2: 8 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'nested-max',
+    title: 'Nested Max',
+    difficulty: 'core',
+    prompt:
+      'The variable `nested` is a ragged list of lists (each sub-list has different length). Build `answer` as the max of each sub-list, sorted descending.',
+    hint: '`max each nested` finds the maximum in each sub-list. `desc` sorts.',
+    answerLabel: 'Expected per-group maxes (sorted desc)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [99, 42, 30, 15, 8],
+    starterCode: `nested:(3 7 2 8;15 4 9;30 12 25 18 6;42 1;99 50 75)
+
+/ Build answer: max of each sub-list, sorted descending.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'nested-table',
+        label: 'nested',
+        columns: ['group', 'values'],
+        rows: [
+          { group: 0, values: '3 7 2 8' },
+          { group: 1, values: '15 4 9' },
+          { group: 2, values: '30 12 25 18 6' },
+          { group: 3, values: '42 1' },
+          { group: 4, values: '99 50 75' },
+        ],
+      },
+    ],
+  },
+
+  // ── Reshape / Structural ───────────────────────────────────────────
+
+  {
+    id: 'flatten-unique',
+    title: 'Flatten & Unique',
+    difficulty: 'warmup',
+    prompt:
+      'The variable `bags` is a list of lists with overlapping values. Build `answer` as the distinct values across all bags, sorted ascending.',
+    hint: '`raze bags` flattens into one list. `distinct` removes duplicates. `asc` sorts ascending.',
+    answerLabel: 'Expected distinct values (sorted asc)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    starterCode: `bags:(1 2 3 4;3 4 5 6;5 6 7 8;7 8 9)
+
+/ Build answer: all distinct values across bags, sorted ascending.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'bags-table',
+        label: 'bags',
+        columns: ['bag', 'values'],
+        rows: [
+          { bag: 0, values: '1 2 3 4' },
+          { bag: 1, values: '3 4 5 6' },
+          { bag: 2, values: '5 6 7 8' },
+          { bag: 3, values: '7 8 9' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'transpose-matrix',
+    title: 'Transpose Matrix',
+    difficulty: 'core',
+    prompt:
+      'The variable `m` is a 3x4 matrix. Build `answer` as the second row (index 1) of the transposed matrix. The transpose of a 3x4 is a 4x3, so `answer` should be a 3-element list.',
+    hint: '`flip m` transposes the matrix. Then index with `[1]` to get the second row.',
+    answerLabel: 'Expected transposed row 1',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [2, 6, 10],
+    starterCode: `m:(1 2 3 4;5 6 7 8;9 10 11 12)
+
+/ Build answer: row at index 1 of the transposed matrix.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'transpose-table',
+        label: 'matrix m (3x4)',
+        columns: ['row', 'c0', 'c1', 'c2', 'c3'],
+        rows: [
+          { row: 0, c0: 1, c1: 2, c2: 3, c3: 4 },
+          { row: 1, c0: 5, c1: 6, c2: 7, c3: 8 },
+          { row: 2, c0: 9, c1: 10, c2: 11, c3: 12 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'chunk-array',
+    title: 'Chunk Array',
+    difficulty: 'core',
+    prompt:
+      'The array `flat` has 12 elements. Reshape it into groups of 4 and build `answer` as the sum of each group, sorted descending.',
+    hint: '`4 cut flat` or `(0 4 8) _ flat` splits into groups of 4. Then `sum each` and `desc`.',
+    answerLabel: 'Expected chunk sums (sorted desc)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [38, 26, 14],
+    starterCode: `flat:1 2 3 8 5 6 7 8 9 10 11 8
+
+/ Build answer: split into groups of 4, sum each group, sort descending.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'flat-table',
+        label: 'flat',
+        columns: ['index', 'value'],
+        rows: [
+          { index: 0, value: 1 },
+          { index: 1, value: 2 },
+          { index: 2, value: 3 },
+          { index: 3, value: 8 },
+          { index: 4, value: 5 },
+          { index: 5, value: 6 },
+          { index: 6, value: 7 },
+          { index: 7, value: 8 },
+          { index: 8, value: 9 },
+          { index: 9, value: 10 },
+          { index: 10, value: 11 },
+          { index: 11, value: 8 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'flat-chart',
+        label: 'flat',
+        chartType: 'bar',
+        xKey: 'index',
+        yKey: 'value',
+        points: [
+          { index: 0, value: 1 },
+          { index: 1, value: 2 },
+          { index: 2, value: 3 },
+          { index: 3, value: 8 },
+          { index: 4, value: 5 },
+          { index: 5, value: 6 },
+          { index: 6, value: 7 },
+          { index: 7, value: 8 },
+          { index: 8, value: 9 },
+          { index: 9, value: 10 },
+          { index: 10, value: 11 },
+          { index: 11, value: 8 },
+        ],
+      },
+    ],
+  },
+
+  // ── Sorting & Ranking ──────────────────────────────────────────────
+
+  {
+    id: 'rank-scores',
+    title: 'Rank Scores',
+    difficulty: 'warmup',
+    prompt:
+      'The array `scores` holds test results. Build `answer` as the rank of each score (0 = lowest, n-1 = highest). The rank of a value is its position in the sorted order.',
+    hint: '`iasc iasc scores` gives the rank of each element. The inner `iasc` sorts, the outer maps back to original positions.',
+    answerLabel: 'Expected ranks',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [2, 0, 4, 1, 3],
+    starterCode: `scores:72 45 95 58 83
+
+/ Build answer: rank of each score (0=lowest, 4=highest).
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'scores-table',
+        label: 'scores',
+        columns: ['student', 'score'],
+        rows: [
+          { student: 0, score: 72 },
+          { student: 1, score: 45 },
+          { student: 2, score: 95 },
+          { student: 3, score: 58 },
+          { student: 4, score: 83 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'top-k-indices',
+    title: 'Top-K Indices',
+    difficulty: 'core',
+    prompt:
+      'The array `vals` holds integers. Build `answer` as the original indices of the top 3 values, ordered from highest to lowest.',
+    hint: '`idesc vals` gives indices that would sort `vals` descending. Take the first 3 with `3#`.',
+    answerLabel: 'Expected top-3 indices',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [7, 5, 3],
+    starterCode: `vals:12 5 8 30 3 45 20 99
+
+/ Build answer: indices of the 3 largest values, highest first.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'topk-table',
+        label: 'vals',
+        columns: ['index', 'value'],
+        rows: [
+          { index: 0, value: 12 },
+          { index: 1, value: 5 },
+          { index: 2, value: 8 },
+          { index: 3, value: 30 },
+          { index: 4, value: 3 },
+          { index: 5, value: 45 },
+          { index: 6, value: 20 },
+          { index: 7, value: 99 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'topk-chart',
+        label: 'vals',
+        chartType: 'bar',
+        xKey: 'index',
+        yKey: 'value',
+        points: [
+          { index: 0, value: 12 },
+          { index: 1, value: 5 },
+          { index: 2, value: 8 },
+          { index: 3, value: 30 },
+          { index: 4, value: 3 },
+          { index: 5, value: 45 },
+          { index: 6, value: 20 },
+          { index: 7, value: 99 },
+        ],
+      },
+    ],
+  },
+
+  // ── Boolean Masking & Where ────────────────────────────────────────
+
+  {
+    id: 'evens-only',
+    title: 'Evens Only',
+    difficulty: 'warmup',
+    prompt:
+      'The array `nums` holds integers. Build `answer` as the even numbers from `nums`, preserving their original order.',
+    hint: '`where 0=nums mod 2` gives the indices of even numbers. Index back into `nums`.',
+    answerLabel: 'Expected even numbers',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [14, 8, 22, 6],
+    starterCode: `nums:7 14 3 8 11 22 5 6 9
+
+/ Build answer: even numbers from nums in original order.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'nums-table',
+        label: 'nums',
+        columns: ['index', 'value'],
+        rows: [
+          { index: 0, value: 7 },
+          { index: 1, value: 14 },
+          { index: 2, value: 3 },
+          { index: 3, value: 8 },
+          { index: 4, value: 11 },
+          { index: 5, value: 22 },
+          { index: 6, value: 5 },
+          { index: 7, value: 6 },
+          { index: 8, value: 9 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'threshold-crossings',
+    title: 'Threshold Crossings',
+    difficulty: 'core',
+    prompt:
+      'The array `temp` holds hourly temperature readings. Build `answer` as the indices where the temperature first crosses above 25 (was <=25, then becomes >25). These are the "rising edge" crossings.',
+    hint: 'Build a boolean mask `temp>25`, then use `deltas` on it — a value of 1 marks an upward crossing. `where` gives the indices.',
+    answerLabel: 'Expected crossing indices',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [2, 6, 10],
+    starterCode: `temp:20 23 28 30 24 22 27 29 25 20 31 26
+
+/ Build answer: indices where temp crosses above 25 (rising edges).
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'temp-table',
+        label: 'temp',
+        columns: ['hour', 'temp'],
+        rows: [
+          { hour: 0, temp: 20 },
+          { hour: 1, temp: 23 },
+          { hour: 2, temp: 28 },
+          { hour: 3, temp: 30 },
+          { hour: 4, temp: 24 },
+          { hour: 5, temp: 22 },
+          { hour: 6, temp: 27 },
+          { hour: 7, temp: 29 },
+          { hour: 8, temp: 25 },
+          { hour: 9, temp: 20 },
+          { hour: 10, temp: 31 },
+          { hour: 11, temp: 26 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'temp-chart',
+        label: 'Temperature',
+        chartType: 'line',
+        xKey: 'hour',
+        yKey: 'temp',
+        points: [
+          { hour: 0, temp: 20 },
+          { hour: 1, temp: 23 },
+          { hour: 2, temp: 28 },
+          { hour: 3, temp: 30 },
+          { hour: 4, temp: 24 },
+          { hour: 5, temp: 22 },
+          { hour: 6, temp: 27 },
+          { hour: 7, temp: 29 },
+          { hour: 8, temp: 25 },
+          { hour: 9, temp: 20 },
+          { hour: 10, temp: 31 },
+          { hour: 11, temp: 26 },
+        ],
+      },
+    ],
+  },
+
+  // ── Matrix / 2D / 3D ──────────────────────────────────────────────
+
+  {
+    id: 'matrix-multiply',
+    title: 'Matrix Multiply',
+    difficulty: 'core',
+    prompt:
+      'Two matrices `A` (2x3) and `B` (3x2) are preloaded. Build `answer` as the first row of the matrix product A·B (a 2-element long list).',
+    hint: 'Matrix multiply in q: `A$B` uses the built-in `mmu` operator ($). Take row 0 of the result.',
+    answerLabel: 'Expected first row of A·B',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [58, 64],
+    starterCode: `A:(1 2 3f;4 5 6f)
+B:(7 8f;9 10f;11 12f)
+
+/ Build answer: first row of A mmu B (matrix multiply).
+answer:\`float$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'matA-table',
+        label: 'matrix A (2x3)',
+        columns: ['row', 'c0', 'c1', 'c2'],
+        rows: [
+          { row: 0, c0: 1, c1: 2, c2: 3 },
+          { row: 1, c0: 4, c1: 5, c2: 6 },
+        ],
+      },
+      {
+        kind: 'table',
+        id: 'matB-table',
+        label: 'matrix B (3x2)',
+        columns: ['row', 'c0', 'c1'],
+        rows: [
+          { row: 0, c0: 7, c1: 8 },
+          { row: 1, c0: 9, c1: 10 },
+          { row: 2, c0: 11, c1: 12 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'identity-matrix',
+    title: 'Identity Matrix',
+    difficulty: 'core',
+    prompt:
+      'Build `answer` as a 4x4 identity matrix (list of 4 rows, each a 4-element list with 1 on the diagonal and 0 elsewhere). Use array generation — no manual typing of rows.',
+    hint: '`{x=/:\\:til x}[4]` or `(til 4)=/:\\:til 4` builds it. `=` compares each pair; the diagonal matches.',
+    answerLabel: 'Expected 4x4 identity',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+    starterCode: `/ Build answer: 4x4 identity matrix using til and = (no hardcoding rows).
+answer:()
+`,
+    datasets: [],
+  },
+  {
+    id: '3d-distance',
+    title: '3D Distance',
+    difficulty: 'core',
+    prompt:
+      'Three arrays `x`, `y`, `z` hold coordinates of 5 points. A reference point is at the origin `(0;0;0)`. Build `answer` as the Euclidean distances from each point to the origin, rounded to 2 decimal places, sorted descending.',
+    hint: '`sqrt (x*x)+(y*y)+z*z` computes distances. Round with `0.01*"j"$100*d` or `{("j"$x*100)%100}`. Sort with `desc`.',
+    answerLabel: 'Expected distances (sorted desc, 2dp)',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [8.66, 7.48, 5.39, 4.69, 1.73],
+    starterCode: `x:1 3 2 5 4
+y:1 4 3 5 2
+z:1 2 3 5 6
+
+/ Build answer: Euclidean distance from origin for each point,
+/ rounded to 2 decimal places, sorted descending.
+answer:\`float$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'points-table',
+        label: 'points',
+        columns: ['point', 'x', 'y', 'z'],
+        rows: [
+          { point: 0, x: 1, y: 1, z: 1 },
+          { point: 1, x: 3, y: 4, z: 2 },
+          { point: 2, x: 2, y: 3, z: 3 },
+          { point: 3, x: 5, y: 5, z: 5 },
+          { point: 4, x: 4, y: 2, z: 6 },
+        ],
+      },
+    ],
+  },
+
+  // ── Reduce / Fold ──────────────────────────────────────────────────
+
+  {
+    id: 'pairwise-diffs',
+    title: 'Pairwise Diffs',
+    difficulty: 'core',
+    prompt:
+      'The array `prices` holds daily stock prices. Build `answer` as a 2-element list: first the maximum single-day gain (positive diff), then the maximum single-day loss (most negative diff).',
+    hint: '`1_deltas prices` or `-\':prices` gives consecutive differences (drop the first null). `max` and `min` find extremes.',
+    answerLabel: 'Expected [maxGain, maxLoss]',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [15, -12],
+    starterCode: `prices:100 108 103 118 106 121 115 130 122 135
+
+/ Build answer: (maxGain;maxLoss) from consecutive day diffs.
+answer:\`long$()
+`,
+    datasets: [
+      {
+        kind: 'table',
+        id: 'prices-table',
+        label: 'prices',
+        columns: ['day', 'price'],
+        rows: [
+          { day: 0, price: 100 },
+          { day: 1, price: 108 },
+          { day: 2, price: 103 },
+          { day: 3, price: 118 },
+          { day: 4, price: 106 },
+          { day: 5, price: 121 },
+          { day: 6, price: 115 },
+          { day: 7, price: 130 },
+          { day: 8, price: 122 },
+          { day: 9, price: 135 },
+        ],
+      },
+      {
+        kind: 'chart',
+        id: 'prices-chart',
+        label: 'Stock price',
+        chartType: 'line',
+        xKey: 'day',
+        yKey: 'price',
+        points: [
+          { day: 0, price: 100 },
+          { day: 1, price: 108 },
+          { day: 2, price: 103 },
+          { day: 3, price: 118 },
+          { day: 4, price: 106 },
+          { day: 5, price: 121 },
+          { day: 6, price: 115 },
+          { day: 7, price: 130 },
+          { day: 8, price: 122 },
+          { day: 9, price: 135 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'power-fold',
+    title: 'Power Fold',
+    difficulty: 'core',
+    prompt:
+      'Without using `xexp` or `prd`, use the over (`/`) iterator to compute powers of 2 for exponents 0 through 7. Build `answer` as the 8-element long list `1 2 4 8 16 32 64 128`.',
+    hint: 'Seed with `1` and apply `{x*2}` seven times using scan: `{x*2}\\[7;1]` gives 8 values. Or generate with `{x,2*last x}/[7;enlist 1]`.',
+    answerLabel: 'Expected powers of 2',
+    answerExpression: normalizePracticeAnswer('answer'),
+    expected: [1, 2, 4, 8, 16, 32, 64, 128],
+    starterCode: `/ Build answer: powers of 2 from 2^0 to 2^7.
+/ Use over (/) or scan (\\) — no xexp allowed.
+answer:\`long$()
+`,
+    datasets: [],
+  },
 ];
 
 export function getPracticeChallenge(challengeId: string) {
   return PRACTICE_CHALLENGES.find((challenge) => challenge.id === challengeId) ?? PRACTICE_CHALLENGES[0];
+}
+
+export function getPracticeSolutionSource(challengeId: string) {
+  const challenge = getPracticeChallenge(challengeId);
+  const solution = PRACTICE_SOLUTION_SNIPPETS[challenge.id];
+  if (!solution) {
+    return challenge.starterCode;
+  }
+
+  const replaced = challenge.starterCode.replace(/\nanswer:[\s\S]*$/, `\n${solution}\n`);
+  return replaced === challenge.starterCode
+    ? `${challenge.starterCode.trimEnd()}\n\n${solution}\n`
+    : replaced;
 }

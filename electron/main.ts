@@ -2,6 +2,8 @@ import { app, BrowserWindow, Menu, dialog, ipcMain } from 'electron';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { StdoutBlockBuffer } from './stdout-block-buffer';
+import { normalizeQScript, qString } from './q-script-utils';
 
 type SketchFilePayload = {
   name: string;
@@ -85,6 +87,7 @@ class QRuntimeSession {
   private activeKind: 'INIT' | 'FRAME' | null = null;
   private activeDeferred: ReturnType<typeof createDeferred<string>> | null = null;
   private expectedExit = false;
+  private readonly plainStdoutBuffer = new StdoutBlockBuffer((text) => sendToRenderer('runtime:stdout', text));
 
   async start(payload: RuntimeStartPayload) {
     await this.stop();
@@ -146,6 +149,7 @@ class QRuntimeSession {
   }
 
   async stop() {
+    this.plainStdoutBuffer.flush();
     if (!this.child) return;
 
     this.expectedExit = true;
@@ -216,30 +220,39 @@ class QRuntimeSession {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed) continue;
+      if (!trimmed) {
+        if (this.plainStdoutBuffer.hasPending) {
+          this.plainStdoutBuffer.append('');
+        }
+        continue;
+      }
 
       if (trimmed.startsWith('__QANVAS_INIT__')) {
+        this.plainStdoutBuffer.flush();
         this.resolveActive('INIT', trimmed.slice('__QANVAS_INIT__'.length));
         continue;
       }
 
       if (trimmed.startsWith('__QANVAS_FRAME__')) {
+        this.plainStdoutBuffer.flush();
         this.resolveActive('FRAME', trimmed.slice('__QANVAS_FRAME__'.length));
         continue;
       }
 
       if (trimmed.startsWith('__QANVAS_ERROR__')) {
+        this.plainStdoutBuffer.flush();
         const message = trimmed.slice('__QANVAS_ERROR__'.length) || 'q runtime error';
         this.rejectActive(message);
         sendToRenderer('runtime:stderr', message);
         continue;
       }
 
-      sendToRenderer('runtime:stdout', trimmed);
+      this.plainStdoutBuffer.append(line);
     }
   }
 
   private handleStderr(chunk: string) {
+    this.plainStdoutBuffer.flush();
     const text = chunk.trim();
     if (!text) return;
     this.rejectActive(text);
@@ -247,6 +260,7 @@ class QRuntimeSession {
   }
 
   private handleExit(code: number) {
+    this.plainStdoutBuffer.flush();
     if (this.expectedExit) {
       this.clearActive();
       this.expectedExit = false;
@@ -259,49 +273,6 @@ class QRuntimeSession {
 }
 
 const runtimeSession = new QRuntimeSession();
-
-function normalizeQScript(source: string) {
-  const statements: string[] = [];
-  let buffer = '';
-  let delimiterDepth = 0;
-
-  for (const rawLine of source.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || (delimiterDepth === 0 && line.startsWith('/'))) {
-      continue;
-    }
-
-    buffer = buffer ? `${buffer} ${line}` : line;
-    delimiterDepth += countChar(line, '{');
-    delimiterDepth -= countChar(line, '}');
-    delimiterDepth += countChar(line, '(');
-    delimiterDepth -= countChar(line, ')');
-    delimiterDepth += countChar(line, '[');
-    delimiterDepth -= countChar(line, ']');
-
-    if (delimiterDepth <= 0) {
-      // q rejects a trailing `;` immediately before a closing delimiter, but
-      // learners often format multiline tables that way while editing.
-      statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
-      buffer = '';
-      delimiterDepth = 0;
-    }
-  }
-
-  if (buffer) {
-    statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
-  }
-
-  return statements;
-}
-
-function countChar(value: string, target: string) {
-  return [...value].filter((char) => char === target).length;
-}
-
-function qString(value: string) {
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
-}
 
 async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
   const runtimePath = payload.runtimePath?.trim();
@@ -351,10 +322,12 @@ async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
   return await new Promise<{ ok: boolean; value?: unknown; error?: string }>((resolve, reject) => {
     let settled = false;
     let stdoutBuffer = '';
+    const plainStdoutBuffer = new StdoutBlockBuffer((text) => sendToRenderer('runtime:stdout', text));
 
     const finish = (result: { ok: boolean; value?: unknown; error?: string }) => {
       if (settled) return;
       settled = true;
+      plainStdoutBuffer.flush();
       child.kill();
       resolve(result);
     };
@@ -366,6 +339,7 @@ async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
     });
 
     child.stderr.on('data', (chunk: string) => {
+      plainStdoutBuffer.flush();
       const text = chunk.trim();
       if (!text) return;
       finish({ ok: false, error: text });
@@ -378,9 +352,15 @@ async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed) continue;
+        if (!trimmed) {
+          if (plainStdoutBuffer.hasPending) {
+            plainStdoutBuffer.append('');
+          }
+          continue;
+        }
 
         if (trimmed.startsWith('__QANVAS_QUERY__')) {
+          plainStdoutBuffer.flush();
           try {
             finish({ ok: true, value: JSON.parse(trimmed.slice('__QANVAS_QUERY__'.length)) });
           } catch (error) {
@@ -390,16 +370,18 @@ async function evaluateRuntimeQuery(payload: RuntimeQueryPayload) {
         }
 
         if (trimmed.startsWith('__QANVAS_ERROR__')) {
+          plainStdoutBuffer.flush();
           finish({ ok: false, error: trimmed.slice('__QANVAS_ERROR__'.length) || 'q runtime error' });
           return;
         }
 
-        sendToRenderer('runtime:stdout', trimmed);
+        plainStdoutBuffer.append(line);
       }
     });
 
     child.on('exit', (code) => {
       if (settled) return;
+      plainStdoutBuffer.flush();
       if (stdoutBuffer.trim().startsWith('__QANVAS_QUERY__')) {
         try {
           finish({ ok: true, value: JSON.parse(stdoutBuffer.trim().slice('__QANVAS_QUERY__'.length)) });

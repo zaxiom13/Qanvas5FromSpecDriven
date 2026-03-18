@@ -1,22 +1,14 @@
 import { EXAMPLES } from '$lib/examples';
-import { PRACTICE_CHALLENGES, getPracticeChallenge } from '$lib/practice-challenges';
+import { electronGateway } from '$lib/electron';
+import { StructuredConsoleFormatter } from '$lib/formatting/value-format';
+import { PRACTICE_CHALLENGES, getPracticeChallenge, getPracticeSolutionSource } from '$lib/practice-challenges';
+import { DEFAULT_PROJECT_NAME, ProjectSessionController } from '$lib/state/project-session';
+import { RuntimeCoordinator, type RuntimeProjectSource } from '$lib/state/runtime-coordinator';
 import {
-  beginRuntimeStart,
-  beginRuntimeStop,
-  completeQueuedRuntimeStep,
-  completeRuntimeStart,
-  completeRuntimeStop,
   createRuntimeControlState,
-  exitRuntime,
-  failRuntime,
-  hasLiveRuntimeSession,
   isRuntimeActive,
   isRuntimePaused,
   isRuntimeTransitioning,
-  pauseRuntime,
-  queueRuntimeStep,
-  recordRuntimeFrame,
-  resumeRuntime,
   type RuntimeFrameKind,
 } from '$lib/state/runtime-control-fsm';
 
@@ -28,7 +20,6 @@ const STORAGE_KEYS = {
   practiceChallengeId: 'qanvas5:practiceChallengeId',
 };
 
-const DEFAULT_PROJECT_NAME = 'untitled';
 const PRACTICE_FILE_NAME = 'practice.q';
 
 export const DEFAULT_SKETCH = `setup:{
@@ -77,10 +68,6 @@ function writeStored(key: string, value: string) {
   }
 }
 
-function joinPath(...parts: string[]) {
-  return parts.join('/').replace(/\/+/g, '/');
-}
-
 class AppState {
   projectPath = $state<string | null>(null);
   projectName = $state(readStored(STORAGE_KEYS.projectName) || DEFAULT_PROJECT_NAME);
@@ -108,6 +95,7 @@ class AppState {
   currentCanvasSize = $state<[number, number]>([1200, 800]);
   workspaceMode = $state<WorkspaceMode>(readStored(STORAGE_KEYS.workspaceMode) === 'practice' ? 'practice' : 'studio');
   practiceChallengeId = $state(readStored(STORAGE_KEYS.practiceChallengeId) || PRACTICE_CHALLENGES[0].id);
+  practiceAnswerVisible = $state(false);
   practiceVerification = $state<PracticeVerification | null>(null);
 
   sidebarCollapsed = $state(readStored(STORAGE_KEYS.sidebarCollapsed) === '1');
@@ -129,10 +117,9 @@ class AppState {
   private dirtyRevision = 0;
   private consoleEntryId = 0;
   private runtimeRefreshWanted = false;
-  private saveQueue: Promise<void> = Promise.resolve();
-  private ignoreNextRuntimeExit = false;
-  private runtimeActionQueue: Promise<void> = Promise.resolve();
-  private expectedRuntimeStop = false;
+  private structuredStdoutFormatter = new StructuredConsoleFormatter();
+  private projectSession = new ProjectSessionController(electronGateway);
+  private runtimeCoordinator = new RuntimeCoordinator(electronGateway);
 
   get activeFile(): SketchFile {
     return this.files.find((file) => file.name === this.activeFileName) ?? this.files[0];
@@ -188,6 +175,10 @@ class AppState {
     return getPracticeChallenge(this.practiceChallengeId);
   }
 
+  get activePracticeSolution() {
+    return getPracticeSolutionSource(this.practiceChallengeId);
+  }
+
   initialize() {
     if (this.booted) return;
     this.booted = true;
@@ -200,30 +191,22 @@ class AppState {
     void this.primeRuntimePath();
     void this.refreshProjectLibrary();
 
-    window.electronAPI.onRuntimeStdout((value) => this.appendConsole('stdout', value));
-    window.electronAPI.onRuntimeStderr((value) => this.handleRuntimeError(value));
-    window.electronAPI.onRuntimeExit((code) => {
-      if (this.ignoreNextRuntimeExit) {
-        this.ignoreNextRuntimeExit = false;
-        return;
-      }
-
-      if (!hasLiveRuntimeSession(this.runtimeControl)) return;
-      this.appendConsole('info', `q process exited (code ${code})`);
-      this.runtimeControl = exitRuntime(this.runtimeControl);
-      this.overlayMode = this.runtimeOk ? 'idle' : 'runtime-missing';
+    electronGateway.runtime.onStdout((value) => this.handleRuntimeStdout(value));
+    electronGateway.runtime.onStderr((value) => this.handleRuntimeError(value));
+    electronGateway.runtime.onExit((code) => {
+      this.runtimeCoordinator.handleRuntimeExit(this, code);
     });
 
-    window.electronAPI.onMenuEvent('menu:new-sketch', () => {
+    electronGateway.menu.onNewSketch(() => {
       void this.createNewSketch();
     });
-    window.electronAPI.onMenuEvent('menu:open-project', () => {
+    electronGateway.menu.onOpenProject(() => {
       this.openProjectsModal();
     });
-    window.electronAPI.onMenuEvent('menu:save', () => {
+    electronGateway.menu.onSave(() => {
       void this.saveProject(false);
     });
-    window.electronAPI.onMenuEvent('menu:save-as', () => {
+    electronGateway.menu.onSaveAs(() => {
       void this.saveProject(true);
     });
   }
@@ -234,6 +217,7 @@ class AppState {
   }
 
   clearConsole(withWelcome = false) {
+    this.structuredStdoutFormatter.flush();
     this.consoleEntries = [];
     if (withWelcome) {
       this.appendConsole('info', 'Qanvas5 ready. Create, open, or run a sketch to get started.');
@@ -246,7 +230,7 @@ class AppState {
   }
 
   toggleFps() {
-    this.showFps = !this.showFps;
+    this.runtimeCoordinator.toggleFps(this);
   }
 
   async setWorkspaceMode(mode: WorkspaceMode) {
@@ -258,6 +242,7 @@ class AppState {
 
     this.workspaceMode = mode;
     writeStored(STORAGE_KEYS.workspaceMode, mode);
+    this.practiceAnswerVisible = false;
     this.practiceVerification = null;
 
     if (mode === 'practice') {
@@ -268,6 +253,7 @@ class AppState {
   setPracticeChallenge(challengeId: string) {
     this.practiceChallengeId = getPracticeChallenge(challengeId).id;
     writeStored(STORAGE_KEYS.practiceChallengeId, this.practiceChallengeId);
+    this.practiceAnswerVisible = false;
     this.practiceVerification = null;
     if (this.workspaceMode === 'practice') {
       this.applyPracticeStarter();
@@ -275,22 +261,11 @@ class AppState {
   }
 
   startProjectRename() {
-    this.renamingProject = true;
-    this.projectNameDraft = this.projectName;
+    this.projectSession.startProjectRename(this);
   }
 
   finishProjectRename(commit: boolean) {
-    if (commit) {
-      const nextName = this.projectNameDraft.trim() || DEFAULT_PROJECT_NAME;
-      const changed = nextName !== this.projectName;
-      this.setProjectName(nextName);
-      if (changed) {
-        this.markDirty();
-      }
-    } else {
-      this.projectNameDraft = this.projectName;
-    }
-    this.renamingProject = false;
+    this.projectSession.finishProjectRename(this, commit);
   }
 
   setProjectName(value: string, persist = true) {
@@ -309,8 +284,7 @@ class AppState {
       return;
     }
 
-    if (this.activeFile?.content === content) return;
-    this.files = this.files.map((file) => (file.name === this.activeFileName ? { ...file, content } : file));
+    if (!this.projectSession.updateActiveFileContent(this, content)) return;
     this.practiceVerification = null;
     this.markDirty({ refreshRuntime: true });
   }
@@ -341,95 +315,34 @@ class AppState {
   }
 
   createFile() {
-    const rawName = this.newFileName.trim();
-    if (!rawName) return;
-
-    const nextName = rawName.includes('.') ? rawName : `${rawName}.q`;
-    if (this.files.some((file) => file.name === nextName)) {
-      return;
-    }
-
-    this.files = [...this.files, { name: nextName, content: `/ ${nextName}\n` }];
-    this.activeFileName = nextName;
-    this.newFileName = '';
-    this.markDirty({ refreshRuntime: true });
+    if (!this.projectSession.createFile(this)) return;
     this.activeModal = null;
   }
 
   renameFile(oldName: string, newName: string) {
-    const rawName = newName.trim();
-    const trimmed = rawName.includes('.') ? rawName : `${rawName}.q`;
-    if (!trimmed || trimmed === oldName || this.files.some((file) => file.name === trimmed)) {
-      return;
-    }
-
-    this.files = this.files.map((file) => (file.name === oldName ? { ...file, name: trimmed } : file));
-    if (this.activeFileName === oldName) {
-      this.activeFileName = trimmed;
-    }
-    this.markDirty({ refreshRuntime: true });
+    this.projectSession.renameFile(this, oldName, newName);
   }
 
   deleteFile(name: string) {
-    if (name === 'sketch.q') return;
-    this.files = this.files.filter((file) => file.name !== name);
-    if (!this.files.some((file) => file.name === this.activeFileName)) {
-      this.activeFileName = this.files[0]?.name ?? 'sketch.q';
-    }
-    this.markDirty({ refreshRuntime: true });
+    this.projectSession.deleteFile(this, name);
   }
 
   async importAssets() {
-    const paths = await window.electronAPI.pickAssets();
-    if (!paths.length) return;
-
-    const existing = new Set(this.assets.map((asset) => asset.name));
-    const nextAssets = [...this.assets];
-
-    for (const assetPath of paths) {
-      const name = assetPath.split('/').pop() || assetPath;
-      if (existing.has(name)) continue;
-      existing.add(name);
-      nextAssets.push({
-        name,
-        sourcePath: assetPath,
-        relativePath: joinPath('assets', name),
-      });
-      this.appendConsole('info', `Asset imported: ${name}`);
-    }
-
-    this.assets = nextAssets;
-    this.markDirty({ refreshRuntime: true });
+    await this.projectSession.importAssets(this);
   }
 
   async detectRuntime() {
-    this.runtimeDetectStatus = 'Detecting…';
-    this.runtimeDetectTone = 'idle';
-
-    const detected = await window.electronAPI.detectRuntime();
-    if (!detected) {
-      this.runtimeDetectStatus = 'q not found on PATH.';
-      this.runtimeDetectTone = 'error';
-      return;
-    }
-
-    this.runtimePathDraft = detected;
-    this.runtimeDetectStatus = `Found: ${detected}`;
-    this.runtimeDetectTone = 'ok';
+    await this.runtimeCoordinator.detectRuntime(this);
   }
 
   saveSettings() {
-    this.runtimePath = this.runtimePathDraft.trim();
+    this.runtimeCoordinator.saveSettings(this);
     writeStored(STORAGE_KEYS.runtimePath, this.runtimePath);
-    this.validateRuntime();
     this.activeModal = null;
   }
 
   validateRuntime() {
-    this.runtimeOk = this.runtimePath.length > 0;
-    if (!this.running) {
-      this.overlayMode = this.runtimeOk ? 'idle' : 'runtime-missing';
-    }
+    this.runtimeCoordinator.validateRuntime(this);
   }
 
   async confirmUnsaved() {
@@ -457,16 +370,10 @@ class AppState {
     if (decision === 'cancel') return false;
 
     await this.stopSketch(true);
-    this.clearAutosave();
-
-    this.projectPath = null;
-    this.setProjectName(name);
-    this.files = [{ name: 'sketch.q', content: template }];
-    this.activeFileName = 'sketch.q';
-    this.assets = [];
+    this.projectSession.resetProject(this, template, name);
     this.dirtyRevision = 1;
     this.runtimeRefreshWanted = false;
-    this.unsaved = true;
+    this.overlayMessage = '';
     this.overlayMode = this.runtimeOk ? 'idle' : 'runtime-missing';
     this.appendConsole('info', `New sketch: ${this.projectName}`);
     return true;
@@ -486,66 +393,33 @@ class AppState {
     const decision = await this.confirmUnsaved();
     if (decision === 'cancel') return;
 
-    const snapshot = await window.electronAPI.readProject(projectPath);
+    const snapshot = await this.projectSession.readProject(projectPath);
     this.loadProject(snapshot);
     this.activeModal = null;
   }
 
   loadProject(snapshot: ProjectSnapshot) {
-    this.clearAutosave();
-    this.projectPath = snapshot.projectPath;
-    this.setProjectName(snapshot.projectName);
-    this.files = snapshot.files.length ? snapshot.files : [{ name: 'sketch.q', content: DEFAULT_SKETCH }];
-    this.activeFileName = this.files.some((file) => file.name === snapshot.activeFileName)
-      ? snapshot.activeFileName
-      : (this.files[0]?.name ?? 'sketch.q');
-    this.assets = snapshot.assets;
+    this.projectSession.loadProject(this, snapshot, DEFAULT_SKETCH);
     this.dirtyRevision = 0;
     this.runtimeRefreshWanted = false;
-    this.unsaved = false;
     this.overlayMessage = '';
     this.overlayMode = this.runtimeOk ? 'idle' : 'runtime-missing';
-    this.appendConsole('info', `Opened project: ${snapshot.projectName}`);
   }
 
   async saveProject(forceChoosePath: boolean, options: { silent?: boolean } = {}) {
-    return this.withSaveLock(async () => {
-      let targetPath = this.projectPath;
-      if (!targetPath || forceChoosePath) {
-        targetPath = null;
-      }
-
-      const revisionAtStart = this.dirtyRevision;
-      const payloadFiles = this.files.map((file) => ({ ...file }));
-      const payloadAssets = this.assets.map((asset) => ({ ...asset }));
-
-      const snapshot = await window.electronAPI.saveProject({
-        projectName: this.projectName,
-        projectPath: targetPath,
-        activeFileName: this.activeFileName,
-        files: payloadFiles,
-        assets: payloadAssets,
-      });
-
-      this.projectPath = snapshot.projectPath;
-      this.assets = this.assets.map((asset) => ({
-        ...asset,
-        absolutePath: joinPath(snapshot.projectPath, 'assets', asset.name),
-        relativePath: joinPath('assets', asset.name),
-      }));
-
-      if (revisionAtStart === this.dirtyRevision) {
-        this.unsaved = false;
-      }
-
-      if (!options.silent) {
-        this.appendConsole('info', `Saved ${this.projectName} to ${snapshot.projectPath}`);
-      }
-
-      void this.refreshProjectLibrary();
-
-      return true;
+    const revisionAtStart = this.dirtyRevision;
+    const snapshot = await this.projectSession.saveProject(this, forceChoosePath, {
+      silent: options.silent,
+      onSaved: () => {
+        void this.refreshProjectLibrary();
+      },
     });
+
+    if (revisionAtStart === this.dirtyRevision) {
+      this.unsaved = false;
+    }
+
+    return Boolean(snapshot);
   }
 
   async runSketch() {
@@ -555,37 +429,13 @@ class AppState {
       return;
     }
 
-    await this.withRuntimeLock(async () => {
-      if (!this.runtimeOk) {
-        await this.primeRuntimePath();
-        if (!this.runtimeOk) return;
-      }
-
-      await this.startRuntimeFromProject(`▶ Running ${this.activeFileName}`);
-    });
+    await this.runtimeCoordinator.runProject(this, this.getRuntimeProjectSource());
   }
 
   async stepSketch() {
     if (this.workspaceMode !== 'studio') return;
 
-    await this.withRuntimeLock(async () => {
-      if (!this.runtimeOk) {
-        await this.primeRuntimePath();
-        if (!this.runtimeOk) return;
-      }
-
-      if (!this.running) {
-        const started = await this.startRuntimeFromProject('↦ Setup step', { paused: true });
-        if (started) {
-          this.appendConsole('info', 'Setup completed. Press Step again for frame 0.');
-        }
-        return;
-      }
-
-      const nextFrame = this.debugFrameNumber;
-      this.runtimeControl = queueRuntimeStep(this.runtimeControl);
-      this.appendConsole('info', `↦ Frame ${nextFrame}`);
-    });
+    await this.runtimeCoordinator.stepProject(this, this.getRuntimeProjectSource());
   }
 
   startStepHold() {
@@ -606,60 +456,58 @@ class AppState {
     const challenge = this.activePracticeChallenge;
     this.practiceVerification = null;
 
-    await this.withRuntimeLock(async () => {
-      try {
+    try {
+      if (!this.runtimeOk) {
+        await this.primeRuntimePath();
         if (!this.runtimeOk) {
-          await this.primeRuntimePath();
-          if (!this.runtimeOk) {
-            this.practiceVerification = {
-              status: 'error',
-              actual: null,
-              expected: challenge.expected,
-              message: 'Configure the q runtime before verifying practice answers.',
-            };
-            return;
-          }
-        }
-
-        const runtimeFiles = this.workspaceMode === 'practice'
-          ? [{ name: PRACTICE_FILE_NAME, content: this.practiceSource }]
-          : this.files.filter((file) => file.name.endsWith('.q'));
-        const result = await window.electronAPI.queryRuntime({
-          runtimePath: this.runtimePath,
-          files: runtimeFiles.map((file) => ({ ...file })),
-          expression: challenge.answerExpression,
-        });
-
-        if (!result.ok) {
           this.practiceVerification = {
             status: 'error',
             actual: null,
             expected: challenge.expected,
-            message: result.error || 'Verification failed.',
+            message: 'Configure the q runtime before verifying practice answers.',
           };
-          this.appendConsole('stderr', result.error || 'Verification failed.');
           return;
         }
+      }
 
-        const matches = stableValue(result.value) === stableValue(challenge.expected);
-        this.practiceVerification = {
-          status: matches ? 'match' : 'mismatch',
-          actual: result.value,
-          expected: challenge.expected,
-          message: matches ? 'Answer matches the expected output.' : 'Output is valid q data, but it does not match the expected answer yet.',
-        };
-        this.appendConsole('info', matches ? `Verified: ${challenge.title}` : `Checked: ${challenge.title}`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+      const runtimeFiles = this.workspaceMode === 'practice'
+        ? [{ name: PRACTICE_FILE_NAME, content: this.practiceSource }]
+        : this.files.filter((file) => file.name.endsWith('.q'));
+      const result = await electronGateway.runtime.query({
+        runtimePath: this.runtimePath,
+        files: runtimeFiles.map((file) => ({ ...file })),
+        expression: challenge.answerExpression,
+      });
+
+      if (!result.ok) {
         this.practiceVerification = {
           status: 'error',
           actual: null,
           expected: challenge.expected,
-          message,
+          message: result.error || 'Verification failed.',
         };
-        this.appendConsole('stderr', message);
+        this.appendConsole('stderr', result.error || 'Verification failed.');
+        return;
       }
-    });
+
+      const matches = stableValue(result.value) === stableValue(challenge.expected);
+      this.practiceVerification = {
+        status: matches ? 'match' : 'mismatch',
+        actual: result.value,
+        expected: challenge.expected,
+        message: matches ? 'Answer matches the expected output.' : 'Output is valid q data, but it does not match the expected answer yet.',
+      };
+      this.appendConsole('info', matches ? `Verified: ${challenge.title}` : `Checked: ${challenge.title}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.practiceVerification = {
+        status: 'error',
+        actual: null,
+        expected: challenge.expected,
+        message,
+      };
+      this.appendConsole('stderr', message);
+    }
   }
 
   exportPng() {
@@ -694,53 +542,37 @@ class AppState {
   }
 
   async stopSketch(quiet = false) {
-    await this.withRuntimeLock(async () => {
-      if (quiet) {
-        await this.stopRuntimeInternal(true);
-        return;
-      }
-
-      await this.stopRuntimeInternal(true);
+    this.stopStepHold();
+    this.runtimeRefreshWanted = false;
+    await this.runtimeCoordinator.stopRuntime(this, true);
+    if (!quiet) {
       this.clearConsole(false);
       this.overlayMode = 'stopped';
-    });
+    }
   }
 
   pauseSketch() {
-    if (!this.running) return;
-    const nextState = this.paused
-      ? resumeRuntime(this.runtimeControl)
-      : pauseRuntime(this.runtimeControl);
-    const message = nextState.mode === 'paused' ? '⏸ Paused' : '▶ Resumed';
-    this.runtimeControl = nextState;
-    this.appendConsole('info', message);
+    this.runtimeCoordinator.pauseSketch(this);
   }
 
   handleRuntimeError(message: string) {
-    if (this.expectedRuntimeStop && (message === 'Runtime stopped.' || message.startsWith('q exited with code'))) {
-      return;
-    }
-
-    this.runtimeControl = failRuntime(this.runtimeControl);
-    this.overlayMode = 'error';
-    this.overlayMessage = message;
-    this.appendConsole('stderr', message);
+    this.runtimeCoordinator.handleRuntimeError(this, message);
   }
 
   setCanvasSize(size: [number, number]) {
-    this.currentCanvasSize = size;
+    this.runtimeCoordinator.setCanvasSize(this, size);
   }
 
   setFps(value: number) {
-    this.fps = value;
+    this.runtimeCoordinator.setFps(this, value);
   }
 
   recordRenderedFrame(kind: RuntimeFrameKind) {
-    this.runtimeControl = recordRuntimeFrame(this.runtimeControl, kind);
+    this.runtimeCoordinator.recordRenderedFrame(this, kind);
   }
 
   completeDebugStep() {
-    this.runtimeControl = completeQueuedRuntimeStep(this.runtimeControl);
+    this.runtimeCoordinator.completeDebugStep(this);
   }
 
   generateSketchName() {
@@ -755,36 +587,17 @@ class AppState {
   }
 
   private async refreshProjectLibrary() {
-    this.projectLibraryLoading = true;
-
-    try {
-      this.projectsRoot = await window.electronAPI.getProjectsRoot();
-      this.projectLibrary = await window.electronAPI.listProjects();
-    } finally {
-      this.projectLibraryLoading = false;
-    }
+    await this.projectSession.refreshProjectLibrary(this);
   }
 
   private async primeRuntimePath() {
-    if (this.runtimePath) {
-      this.validateRuntime();
-      return;
+    const updated = await this.runtimeCoordinator.primeRuntimePath(this);
+    if (updated) {
+      writeStored(STORAGE_KEYS.runtimePath, this.runtimePath);
     }
-
-    const detected = await window.electronAPI.detectRuntime();
-    if (!detected) {
-      this.validateRuntime();
-      return;
-    }
-
-    this.runtimePath = detected;
-    this.runtimePathDraft = detected;
-    writeStored(STORAGE_KEYS.runtimePath, detected);
-    this.validateRuntime();
-    this.appendConsole('info', `Detected q runtime at ${detected}`);
   }
 
-  private markDirty(options: { refreshRuntime?: boolean } = {}) {
+  markDirty(options: { refreshRuntime?: boolean } = {}) {
     this.dirtyRevision += 1;
     this.unsaved = true;
 
@@ -795,7 +608,7 @@ class AppState {
     this.scheduleAutosave();
   }
 
-  private clearAutosave() {
+  clearAutosave() {
     if (!this.autosaveTimer) return;
     clearTimeout(this.autosaveTimer);
     this.autosaveTimer = null;
@@ -825,109 +638,55 @@ class AppState {
 
     if (this.runtimeRefreshWanted && this.running) {
       this.runtimeRefreshWanted = false;
-      await this.withRuntimeLock(async () => {
-        if (this.running) {
-          await this.startRuntimeFromProject('↻ Live update');
-        }
-      });
+      await this.runtimeCoordinator.runProject(this, this.getRuntimeProjectSource(), '↻ Live update');
     }
   }
 
   private applyPracticeStarter() {
     const challenge = this.activePracticeChallenge;
     this.practiceSource = challenge.starterCode;
+    this.practiceAnswerVisible = false;
     this.practiceVerification = null;
     this.appendConsole('info', `Loaded practice starter: ${challenge.title}`);
   }
 
-  private async startRuntimeFromProject(message: string, options: { paused?: boolean } = {}) {
-    const runtimePath = this.runtimePath?.trim();
-    if (!runtimePath) {
-      this.handleRuntimeError('q runtime path is missing. Configure the q binary in Settings.');
-      return false;
-    }
+  revealPracticeAnswer() {
+    this.practiceAnswerVisible = true;
+  }
 
-    const runtimeFiles = this.files.filter((file) => file.name.endsWith('.q'));
-    if (!runtimeFiles.some((file) => file.name === 'sketch.q')) {
-      this.handleRuntimeError('The project must include a sketch.q entry point.');
-      return false;
-    }
+  hidePracticeAnswer() {
+    this.practiceAnswerVisible = false;
+  }
 
-    await this.stopRuntimeInternal(true);
-    this.runtimeControl = beginRuntimeStart(this.runtimeControl, options.paused ? 'step' : 'run');
-    this.appendConsole('info', message);
+  loadPracticeAnswer() {
+    this.practiceSource = this.activePracticeSolution;
+    this.practiceAnswerVisible = true;
+    this.practiceVerification = null;
+    this.appendConsole('info', `Loaded practice answer: ${this.activePracticeChallenge.title}`);
+  }
 
-    try {
-      await window.electronAPI.startRuntime({
-        runtimePath,
-        projectPath: this.projectPath,
-        files: runtimeFiles.map((file) => ({ ...file })),
-      });
-      this.runtimeControl = completeRuntimeStart(this.runtimeControl);
-      this.overlayMode = 'running';
-      this.overlayMessage = '';
-      this.runNonce += 1;
-      return true;
-    } catch (error) {
-      this.handleRuntimeError(error instanceof Error ? error.message : String(error));
-      return false;
+  resetPracticeStarter() {
+    this.applyPracticeStarter();
+  }
+
+  private handleRuntimeStdout(value: string) {
+    for (const entry of this.structuredStdoutFormatter.push(value)) {
+      this.appendConsole('stdout', entry);
     }
   }
 
-  private async stopRuntimeInternal(quiet = false) {
-    this.runtimeRefreshWanted = false;
-    const wasRunning = this.running;
-    this.runtimeControl = beginRuntimeStop(this.runtimeControl);
-    this.expectedRuntimeStop = wasRunning;
-    this.stopStepHold();
-
-    if (wasRunning) {
-      this.ignoreNextRuntimeExit = true;
-      await window.electronAPI.stopRuntime();
-    }
-
-    this.expectedRuntimeStop = false;
-    this.runtimeControl = completeRuntimeStop(this.runtimeControl);
-    this.runNonce += 1;
-
-    if (!quiet) {
-      this.overlayMode = 'stopped';
-      this.appendConsole('info', '■ Stopped');
-    } else if (this.runtimeOk) {
-      this.overlayMode = 'idle';
+  flushPendingStructuredStdout() {
+    for (const entry of this.structuredStdoutFormatter.flush()) {
+      this.appendConsole('stdout', entry);
     }
   }
 
-  private async withSaveLock<T>(task: () => Promise<T>) {
-    const previous = this.saveQueue;
-    let release!: () => void;
-    this.saveQueue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-
-    await previous;
-
-    try {
-      return await task();
-    } finally {
-      release();
-    }
-  }
-
-  private async withRuntimeLock<T>(task: () => Promise<T>) {
-    const previous = this.runtimeActionQueue;
-    let release!: () => void;
-    this.runtimeActionQueue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-
-    await previous;
-
-    try {
-      return await task();
-    } finally {
-      release();
-    }
+  private getRuntimeProjectSource(): RuntimeProjectSource {
+    return {
+      projectPath: this.projectPath,
+      activeFileName: this.activeFileName,
+      files: this.files.filter((file) => file.name.endsWith('.q')),
+    };
   }
 }
 

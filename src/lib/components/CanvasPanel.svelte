@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { electronGateway } from '$lib/electron';
   import { onMount } from 'svelte';
   import { CanvasSurface } from '$lib/runtime/canvas-surface';
   import { appState } from '$lib/state/app-state.svelte';
@@ -78,7 +79,7 @@
       const size = surface.getSize();
       appState.setCanvasSize(size as [number, number]);
 
-      const commands = await window.electronAPI.frameRuntime({
+      const commands = await electronGateway.runtime.frame({
         frameInfo: {
           frameNum: frameNumber,
           time: now - startTime,

@@ -284,6 +284,34 @@ answer:select totalRevenue:sum revenue by city from sales where city in \`London
     }
   });
 
+  test('practice reveal answer loads a working solution into the editor', async () => {
+    const app = await launchApp();
+    const page = await app.firstWindow();
+
+    try {
+      await page.getByRole('button', { name: 'Practice' }).click();
+      await expect(page.locator('#practice-panel')).toContainText('City Revenue Rollup');
+
+      await page.locator('#btn-practice-show-answer').click();
+      await expect(page.locator('#practice-panel')).toContainText('Working answer');
+      await expect(page.locator('#practice-panel')).toContainText('answer:`totalRevenue xdesc');
+
+      await page.locator('#btn-practice-load-answer').click();
+      await expect(page.locator('#console-output')).toContainText('Loaded practice answer: City Revenue Rollup');
+
+      const editorText = (await readEditorText(page)).replace(/\s+/g, ' ');
+      expect(editorText).toContain('totals:select totalRevenue:sum revenue by city from sales;');
+      expect(editorText).toContain('answer:`totalRevenue xdesc select city, totalRevenue from totals where totalRevenue >= 200;');
+
+      await page.locator('#btn-run').click();
+
+      await expect(page.locator('.practice-status')).toHaveText('match', { timeout: 15_000 });
+      await expect(page.locator('#practice-panel')).toContainText('Answer matches the expected output.');
+    } finally {
+      await app.close();
+    }
+  });
+
   test('top-level show output stays grouped with its table header', async () => {
     const app = await launchApp();
     const page = await app.firstWindow();

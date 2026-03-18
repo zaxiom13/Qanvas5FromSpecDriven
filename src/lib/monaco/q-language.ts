@@ -547,7 +547,8 @@ export function registerQLanguage(monaco: typeof Monaco) {
   monaco.languages.setMonarchTokensProvider('q', {
     tokenizer: {
       root: [
-        [/\/.*$/, 'comment'],
+        [/\/:|\\:|':/, 'operator'],
+        [/\/(?!:).*$/, 'comment'],
         [/^\\[a-z]+/, 'keyword'],
         [/\{/, 'delimiter.curly'],
         [/\}/, 'delimiter.curly'],

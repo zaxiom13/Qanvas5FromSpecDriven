@@ -996,8 +996,36 @@ button {
 
 .practice-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 16px;
+}
+
+.practice-card--answer {
+  overflow: hidden;
+}
+
+.practice-answer-body {
+  padding: 14px 18px 18px;
+}
+
+.practice-answer-copy {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.practice-answer-code {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(168, 155, 142, 0.18);
+  background: rgba(255, 255, 255, 0.74);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-code);
+  user-select: text;
 }
 
 .practice-dataset-stack {
@@ -1426,8 +1454,11 @@ button {
 }
 
 .console-text {
+  display: block;
   color: var(--text-code);
+  white-space: pre-wrap;
   word-break: break-word;
+  font-variant-numeric: tabular-nums;
 }
 
 .console-line--stderr .console-prefix,

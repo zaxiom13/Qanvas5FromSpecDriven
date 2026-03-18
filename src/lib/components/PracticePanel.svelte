@@ -1,68 +1,14 @@
 <script lang="ts">
+  import { formatDisplayValue } from '$lib/formatting/value-format';
   import { appState } from '$lib/state/app-state.svelte';
+  import {
+    PRACTICE_CHART,
+    createPracticePanelViewModel,
+    formatPracticeAxisValue,
+  } from '$lib/view-models/practice-panel';
 
-  function formatValue(value: unknown) {
-    return JSON.stringify(value, null, 2);
-  }
-
-  // Chart dimensions — plot area: x=[44,296], y=[12,132]
-  const CHART_LEFT = 44;
-  const CHART_RIGHT = 296;
-  const CHART_TOP = 12;
-  const CHART_BOTTOM = 132;
-  const CHART_WIDTH = CHART_RIGHT - CHART_LEFT;
-  const CHART_HEIGHT = CHART_BOTTOM - CHART_TOP;
-
-  function chartX(index: number, total: number) {
-    return CHART_LEFT + (index * CHART_WIDTH) / Math.max(total - 1, 1);
-  }
-
-  function chartY(value: number, values: number[]) {
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const range = Math.max(max - min, 1);
-    return CHART_BOTTOM - ((value - min) / range) * CHART_HEIGHT;
-  }
-
-  function chartPath(points: Array<Record<string, string | number>>, yKey: string) {
-    if (!points.length) return '';
-    const values = points.map((point) => Number(point[yKey]));
-    return points
-      .map((point, index) => {
-        const x = chartX(index, points.length);
-        const y = chartY(Number(point[yKey]), values);
-        return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
-      })
-      .join(' ');
-  }
-
-  function dataMin(points: Array<Record<string, string | number>>, yKey: string) {
-    return Math.min(...points.map((p) => Number(p[yKey])));
-  }
-
-  function dataMax(points: Array<Record<string, string | number>>, yKey: string) {
-    return Math.max(...points.map((p) => Number(p[yKey])));
-  }
-
-  function fmtAxisVal(v: number) {
-    // Show integers cleanly; abbreviate large numbers
-    if (Math.abs(v) >= 1000) return `${Math.round(v / 1000)}k`;
-    return String(Math.round(v));
-  }
-
-  const difficultyOrder: Record<string, number> = { warmup: 0, core: 1 };
-  let groupedChallenges = $derived(
-    Object.entries(
-      appState.practiceChallenges.reduce<Record<string, typeof appState.practiceChallenges>>(
-        (acc, c) => {
-          const key = c.difficulty;
-          if (!acc[key]) acc[key] = [];
-          acc[key].push(c);
-          return acc;
-        },
-        {}
-      )
-    ).sort(([a], [b]) => (difficultyOrder[a] ?? 99) - (difficultyOrder[b] ?? 99))
+  let viewModel = $derived(
+    createPracticePanelViewModel(appState.practiceChallenges, appState.activePracticeChallenge)
   );
 </script>
 
@@ -70,16 +16,16 @@
   <div class="practice-toolbar">
     <div>
       <span class="practice-eyebrow">Practice</span>
-      <h2 class="practice-title">{appState.activePracticeChallenge.title}</h2>
+      <h2 class="practice-title">{viewModel.activeChallenge.title}</h2>
     </div>
   </div>
 
   <!-- Challenge picker -->
   <nav class="practice-picker" aria-label="Choose challenge">
-    {#each groupedChallenges as [difficulty, challenges]}
+    {#each viewModel.challengeGroups as group}
       <div class="practice-picker-group">
-        <span class="practice-picker-label">{difficulty}</span>
-        {#each challenges as challenge (challenge.id)}
+        <span class="practice-picker-label">{group.difficulty}</span>
+        {#each group.challenges as challenge (challenge.id)}
           <button
             class="practice-picker-item"
             class:is-active={challenge.id === appState.practiceChallengeId}
@@ -96,15 +42,46 @@
   <div class="practice-scroll">
     <article class="practice-card practice-card--prompt">
       <div class="practice-chip-row">
-        <span class="practice-chip">{appState.activePracticeChallenge.difficulty}</span>
+        <span class="practice-chip">{viewModel.activeChallenge.difficulty}</span>
         <span class="practice-chip practice-chip--ghost">define `answer`</span>
       </div>
-      <p class="practice-prompt">{appState.activePracticeChallenge.prompt}</p>
-      <p class="practice-hint">{appState.activePracticeChallenge.hint}</p>
+      <p class="practice-prompt">{viewModel.activeChallenge.prompt}</p>
+      <p class="practice-hint">{viewModel.activeChallenge.hint}</p>
+      <div class="practice-actions">
+        {#if appState.practiceAnswerVisible}
+          <button class="btn-secondary" id="btn-practice-hide-answer" type="button" onclick={() => appState.hidePracticeAnswer()}>
+            Hide answer
+          </button>
+          <button class="btn-secondary" id="btn-practice-load-answer" type="button" onclick={() => appState.loadPracticeAnswer()}>
+            Use answer
+          </button>
+          <button class="btn-secondary" id="btn-practice-reset" type="button" onclick={() => appState.resetPracticeStarter()}>
+            Reset starter
+          </button>
+        {:else}
+          <button class="btn-secondary" id="btn-practice-show-answer" type="button" onclick={() => appState.revealPracticeAnswer()}>
+            Show answer
+          </button>
+        {/if}
+      </div>
     </article>
 
+    {#if appState.practiceAnswerVisible}
+      <article class="practice-card practice-card--answer">
+        <div class="practice-card-header">
+          <h3>Working answer</h3>
+          <span>solution</span>
+        </div>
+
+        <div class="practice-answer-body">
+          <p class="practice-answer-copy">If you’re stuck, this is a runnable answer for the current practice. You can inspect it here or load it into the editor and verify it.</p>
+          <pre class="practice-answer-code">{appState.activePracticeSolution}</pre>
+        </div>
+      </article>
+    {/if}
+
     <div class="practice-dataset-stack">
-      {#each appState.activePracticeChallenge.datasets as dataset (dataset.id)}
+      {#each viewModel.datasets as dataset (dataset.id)}
         <article class="practice-card">
           <div class="practice-card-header">
             <h3>{dataset.label}</h3>
@@ -133,66 +110,53 @@
               </table>
             </div>
           {:else}
-            {@const yMin = dataMin(dataset.points, dataset.yKey)}
-            {@const yMax = dataMax(dataset.points, dataset.yKey)}
-            {@const yMid = (yMin + yMax) / 2}
             <div class="practice-chart-wrap">
               <svg viewBox="0 0 320 160" class="practice-chart" aria-label={dataset.label}>
                 <!-- Y-axis labels -->
-                <text class="practice-chart-axis-label" x={CHART_LEFT - 4} y={CHART_TOP + 4} text-anchor="end">{fmtAxisVal(yMax)}</text>
-                <text class="practice-chart-axis-label" x={CHART_LEFT - 4} y={(CHART_TOP + CHART_BOTTOM) / 2 + 4} text-anchor="end">{fmtAxisVal(yMid)}</text>
-                <text class="practice-chart-axis-label" x={CHART_LEFT - 4} y={CHART_BOTTOM + 4} text-anchor="end">{fmtAxisVal(yMin)}</text>
+                <text class="practice-chart-axis-label" x={PRACTICE_CHART.left - 4} y={PRACTICE_CHART.top + 4} text-anchor="end">{formatPracticeAxisValue(dataset.chart.yMax)}</text>
+                <text class="practice-chart-axis-label" x={PRACTICE_CHART.left - 4} y={(PRACTICE_CHART.top + PRACTICE_CHART.bottom) / 2 + 4} text-anchor="end">{formatPracticeAxisValue(dataset.chart.yMid)}</text>
+                <text class="practice-chart-axis-label" x={PRACTICE_CHART.left - 4} y={PRACTICE_CHART.bottom + 4} text-anchor="end">{formatPracticeAxisValue(dataset.chart.yMin)}</text>
 
                 <!-- Grid lines -->
                 <path
                   class="practice-chart-grid"
-                  d={`M ${CHART_LEFT} ${CHART_BOTTOM} H ${CHART_RIGHT} M ${CHART_LEFT} ${(CHART_TOP + CHART_BOTTOM) / 2} H ${CHART_RIGHT} M ${CHART_LEFT} ${CHART_TOP} H ${CHART_RIGHT}`}
+                  d={dataset.chart.gridPath}
                 />
 
                 <!-- Y-axis tick marks -->
                 <path
                   class="practice-chart-grid"
-                  d={`M ${CHART_LEFT} ${CHART_TOP} V ${CHART_BOTTOM}`}
+                  d={`M ${PRACTICE_CHART.left} ${PRACTICE_CHART.top} V ${PRACTICE_CHART.bottom}`}
                   stroke-dasharray="none"
                 />
 
                 {#if dataset.chartType === 'bar'}
                   <!-- Bar chart -->
-                  {@const values = dataset.points.map((p) => Number(p[dataset.yKey]))}
-                  {@const barW = Math.floor(CHART_WIDTH / dataset.points.length) - 6}
-                  {#each dataset.points as point, index}
-                    {@const bx = chartX(index, dataset.points.length) - barW / 2}
-                    {@const by = chartY(Number(point[dataset.yKey]), values)}
+                  {#each dataset.chart.bars as bar}
                     <rect
-                      x={bx}
-                      y={by}
-                      width={barW}
-                      height={CHART_BOTTOM - by}
+                      x={bar.x}
+                      y={bar.y}
+                      width={dataset.chart.barWidth}
+                      height={bar.height}
                       class="practice-chart-bar"
                     />
                   {/each}
                 {:else}
                   <!-- Line chart -->
-                  <path class="practice-chart-line" d={chartPath(dataset.points, dataset.yKey)} />
-                  {#each dataset.points as point, index}
-                    {@const values = dataset.points.map((entry) => Number(entry[dataset.yKey]))}
-                    <circle
-                      cx={chartX(index, dataset.points.length)}
-                      cy={chartY(Number(point[dataset.yKey]), values)}
-                      r="4"
-                      class="practice-chart-dot"
-                    />
+                  <path class="practice-chart-line" d={dataset.chart.linePath} />
+                  {#each dataset.chart.dots as dot}
+                    <circle cx={dot.cx} cy={dot.cy} r="4" class="practice-chart-dot" />
                   {/each}
                 {/if}
 
                 <!-- X-axis labels -->
-                {#each dataset.points as point, index}
+                {#each dataset.chart.labels as label}
                   <text
                     class="practice-chart-axis-label"
-                    x={chartX(index, dataset.points.length)}
+                    x={label.x}
                     y="150"
                     text-anchor="middle"
-                  >{point[dataset.xKey]}</text>
+                  >{label.value}</text>
                 {/each}
               </svg>
             </div>
@@ -215,11 +179,11 @@
         <div class="practice-compare-grid">
           <div class="practice-compare-card">
             <div class="practice-compare-label">Your output</div>
-            <pre>{formatValue(appState.practiceVerification.actual)}</pre>
+            <pre>{formatDisplayValue(appState.practiceVerification.actual)}</pre>
           </div>
           <div class="practice-compare-card">
-            <div class="practice-compare-label">{appState.activePracticeChallenge.answerLabel}</div>
-            <pre>{formatValue(appState.practiceVerification.expected)}</pre>
+            <div class="practice-compare-label">{viewModel.activeChallenge.answerLabel}</div>
+            <pre>{formatDisplayValue(appState.practiceVerification.expected)}</pre>
           </div>
         </div>
       </article>

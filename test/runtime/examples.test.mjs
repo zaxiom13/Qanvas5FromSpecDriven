@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const workspaceRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 const bootSource = fs.readFileSync(path.join(workspaceRoot, 'runtime', 'boot.q'), 'utf8');
 const { EXAMPLES } = loadTsExports(path.join(workspaceRoot, 'src', 'lib', 'examples.ts'));
+const { normalizeQScript, qString } = loadTsExports(path.join(workspaceRoot, 'electron', 'q-script-utils.ts'));
 
 const exampleInputs = {
   'click-painter': {
@@ -113,45 +114,4 @@ function runSketch(code, payload) {
     ...result,
     stdoutLines: result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
   };
-}
-
-function normalizeQScript(source) {
-  const statements = [];
-  let buffer = '';
-  let delimiterDepth = 0;
-
-  for (const rawLine of source.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || (delimiterDepth === 0 && line.startsWith('/'))) {
-      continue;
-    }
-
-    buffer = buffer ? `${buffer} ${line}` : line;
-    delimiterDepth += countChar(line, '{');
-    delimiterDepth -= countChar(line, '}');
-    delimiterDepth += countChar(line, '(');
-    delimiterDepth -= countChar(line, ')');
-    delimiterDepth += countChar(line, '[');
-    delimiterDepth -= countChar(line, ']');
-
-    if (delimiterDepth <= 0) {
-      statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
-      buffer = '';
-      delimiterDepth = 0;
-    }
-  }
-
-  if (buffer) {
-    statements.push(buffer.replace(/;\s*([\)\]])/g, '$1'));
-  }
-
-  return statements;
-}
-
-function countChar(value, target) {
-  return [...value].filter((char) => char === target).length;
-}
-
-function qString(value) {
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }

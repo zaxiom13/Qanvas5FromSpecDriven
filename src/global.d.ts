@@ -68,23 +68,32 @@ declare global {
     error?: string;
   };
 
+  type ElectronMenuEventName =
+    | 'menu:new-sketch'
+    | 'menu:open-project'
+    | 'menu:save'
+    | 'menu:save-as'
+    | 'menu:toggle-comment';
+
+  type ElectronRendererAPI = {
+    pickAssets: () => Promise<string[]>;
+    getProjectsRoot: () => Promise<string>;
+    listProjects: () => Promise<ProjectLibraryEntry[]>;
+    readProject: (projectPath: string) => Promise<ProjectSnapshot>;
+    saveProject: (payload: ProjectPayload) => Promise<ProjectSnapshot>;
+    detectRuntime: () => Promise<string | null>;
+    startRuntime: (payload: RuntimeStartPayload) => Promise<Record<string, unknown>>;
+    frameRuntime: (payload: RuntimeFramePayload) => Promise<Record<string, unknown>[]>;
+    queryRuntime: (payload: RuntimeQueryPayload) => Promise<RuntimeQueryResult>;
+    stopRuntime: () => Promise<void>;
+    onMenuEvent: (channel: ElectronMenuEventName, callback: () => void) => () => void;
+    onRuntimeStdout: (callback: (value: string) => void) => () => void;
+    onRuntimeStderr: (callback: (value: string) => void) => () => void;
+    onRuntimeExit: (callback: (code: number) => void) => () => void;
+  };
+
   interface Window {
-    electronAPI: {
-      pickAssets: () => Promise<string[]>;
-      getProjectsRoot: () => Promise<string>;
-      listProjects: () => Promise<ProjectLibraryEntry[]>;
-      readProject: (projectPath: string) => Promise<ProjectSnapshot>;
-      saveProject: (payload: ProjectPayload) => Promise<ProjectSnapshot>;
-      detectRuntime: () => Promise<string | null>;
-      startRuntime: (payload: RuntimeStartPayload) => Promise<Record<string, unknown>>;
-      frameRuntime: (payload: RuntimeFramePayload) => Promise<Record<string, unknown>[]>;
-      queryRuntime: (payload: RuntimeQueryPayload) => Promise<RuntimeQueryResult>;
-      stopRuntime: () => Promise<void>;
-      onMenuEvent: (channel: string, callback: () => void) => () => void;
-      onRuntimeStdout: (callback: (value: string) => void) => () => void;
-      onRuntimeStderr: (callback: (value: string) => void) => () => void;
-      onRuntimeExit: (callback: (code: number) => void) => () => void;
-    };
+    electronAPI: ElectronRendererAPI;
   }
 }
 

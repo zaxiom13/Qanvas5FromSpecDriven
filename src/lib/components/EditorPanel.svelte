@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { electronGateway } from '$lib/electron';
   import { onMount } from 'svelte';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
   import { appState } from '$lib/state/app-state.svelte';
@@ -27,7 +28,7 @@
 
   onMount(() => {
     const disposeShortcuts = handleGlobalShortcuts();
-    const disposeMenuComment = window.electronAPI.onMenuEvent('menu:toggle-comment', () => {
+    const disposeMenuComment = electronGateway.menu.onToggleComment(() => {
       window.dispatchEvent(new CustomEvent('qanvas:toggle-comment'));
     });
 
